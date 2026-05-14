@@ -57,8 +57,6 @@ using namespace bluetooth::legacy::stack::sdp;
 using namespace bluetooth;
 
 // Protects the sdp_slots array from concurrent access.
-// TODO(b/415689442): Remove when btsec_sdp_database_thread_sync is shipped
-static std::recursive_mutex sdp_lock;
 
 /**
  * The need for a state variable have been reduced to two states.
@@ -132,17 +130,13 @@ static void init_sdp_slots_in_main_thread() {
 }
 
 static void init_sdp_slots() {
-  if (com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-    // We should not block this thread on main_thread to post this synchronously.
-    // As Init sequence is long and some other enable/init sequence may block the main thread for
-    // too long leading to timeout during synchronous execution. Doing this init asynchronously
-    // will be safe as SDP will be required post complete init anyway. Also, doing this
-    // synchronously on the same thread is also fine, but keeping the sdp access on main_thread to
-    // avoid any race whatsoever.
-    do_in_main_thread(common::BindOnce(&init_sdp_slots_in_main_thread));
-  } else {
-    init_sdp_slots_in_main_thread();
-  }
+  // We should not block this thread on main_thread to post this synchronously.
+  // As Init sequence is long and some other enable/init sequence may block the main thread for
+  // too long leading to timeout during synchronous execution. Doing this init asynchronously
+  // will be safe as SDP will be required post complete init anyway. Also, doing this
+  // synchronously on the same thread is also fine, but keeping the sdp access on main_thread to
+  // avoid any race whatsoever.
+  do_in_main_thread(common::BindOnce(&init_sdp_slots_in_main_thread));
 }
 
 BtStatus sdp_server_init() {
@@ -153,9 +147,6 @@ BtStatus sdp_server_init() {
 
 static void cleanup_in_main_thread() {
   log::verbose("Sdp Server Cleanup");
-  if (!com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-    std::unique_lock<std::recursive_mutex> lock(sdp_lock);
-  }
   int i;
   for (i = 0; i < MAX_SDP_SLOTS; i++) {
     /*remove_sdp_record(i); we cannot send messages to the other threads, since
@@ -167,11 +158,7 @@ static void cleanup_in_main_thread() {
 }
 
 void sdp_server_cleanup() {
-  if (com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-    get_main_thread()->DoInThreadSynchronously(&cleanup_in_main_thread);
-  } else {
-    cleanup_in_main_thread();
-  }
+  get_main_thread()->DoInThreadSynchronously(&cleanup_in_main_thread);
 }
 
 int get_sdp_records_size(bluetooth_sdp_record* in_record, int count) {
@@ -252,19 +239,14 @@ static int alloc_sdp_slot_in_main_thread(bluetooth_sdp_record* in_record) {
                  record->ops.supported_formats_list_len);
   }
 
-  {
-    if (!com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-      std::unique_lock<std::recursive_mutex> lock(sdp_lock);
-    }
-
-    for (int i = 0; i < MAX_SDP_SLOTS; i++) {
-      if (sdp_slots[i].state == SDP_RECORD_FREE) {
-        sdp_slots[i].state = SDP_RECORD_ALLOCED;
-        sdp_slots[i].record_data = record;
-        return i;
-      }
+  for (int i = 0; i < MAX_SDP_SLOTS; i++) {
+    if (sdp_slots[i].state == SDP_RECORD_FREE) {
+      sdp_slots[i].state = SDP_RECORD_ALLOCED;
+      sdp_slots[i].record_data = record;
+      return i;
     }
   }
+
   log::error("failed - no more free slots!");
   /* Rearly the optimist is too optimistic, and cleanup is needed...*/
   osi_free(record);
@@ -272,11 +254,7 @@ static int alloc_sdp_slot_in_main_thread(bluetooth_sdp_record* in_record) {
 }
 
 static int alloc_sdp_slot(bluetooth_sdp_record* in_record) {
-  if (com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-      return get_main_thread()->DoInThreadSynchronously(&alloc_sdp_slot_in_main_thread, in_record);
-  }
-
-  return alloc_sdp_slot_in_main_thread(in_record);
+  return get_main_thread()->DoInThreadSynchronously(&alloc_sdp_slot_in_main_thread, in_record);
 }
 
 static int free_sdp_slot(int id) {
@@ -287,19 +265,15 @@ static int free_sdp_slot(int id) {
     return handle;
   }
 
-  {
-    if (!com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-      std::unique_lock<std::recursive_mutex> lock(sdp_lock);
-    }
 
-    handle = sdp_slots[id].sdp_handle;
-    sdp_slots[id].sdp_handle = 0;
-    if (sdp_slots[id].state != SDP_RECORD_FREE) {
-      /* safe a copy of the pointer, and free after unlock() */
-      record = sdp_slots[id].record_data;
-    }
-    sdp_slots[id].state = SDP_RECORD_FREE;
+  handle = sdp_slots[id].sdp_handle;
+  sdp_slots[id].sdp_handle = 0;
+  if (sdp_slots[id].state != SDP_RECORD_FREE) {
+    /* safe a copy of the pointer, and free after unlock() */
+    record = sdp_slots[id].record_data;
   }
+  sdp_slots[id].state = SDP_RECORD_FREE;
+
 
   if (record != NULL) {
     osi_free(record);
@@ -314,10 +288,6 @@ static const sdp_slot_t* start_create_sdp_in_main_thread(int id) {
   if (id >= MAX_SDP_SLOTS) {
     log::error("failed - id {} is invalid", id);
     return NULL;
-  }
-
-  if (!com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-    std::unique_lock<std::recursive_mutex> lock(sdp_lock);
   }
 
   if (sdp_slots[id].state != SDP_RECORD_ALLOCED) {
@@ -335,27 +305,15 @@ static const sdp_slot_t* start_create_sdp_in_main_thread(int id) {
  * SDP_RECORD_CREATE_INITIATED.
  */
 static const sdp_slot_t* start_create_sdp(int id) {
-  if (com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-      return get_main_thread()->DoInThreadSynchronously(&start_create_sdp_in_main_thread, id);
-  }
-
-  return start_create_sdp_in_main_thread(id);
+  return get_main_thread()->DoInThreadSynchronously(&start_create_sdp_in_main_thread, id);
 }
 
 static void set_sdp_handle_in_main_thread(int id, int handle) {
-  if (!com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-    std::unique_lock<std::recursive_mutex> lock(sdp_lock);
-  }
   sdp_slots[id].sdp_handle = handle;
 }
 
 static void set_sdp_handle(int id, int handle) {
-  if (com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-      get_main_thread()->DoInThreadSynchronously(&set_sdp_handle_in_main_thread, id, handle);
-  }
-  else {
-    set_sdp_handle_in_main_thread(id, handle);
-  }
+  get_main_thread()->DoInThreadSynchronously(&set_sdp_handle_in_main_thread, id, handle);
 }
 
 static BtStatus create_sdp_record_in_main_thread(bluetooth_sdp_record* record, int* record_handle) {
@@ -376,12 +334,8 @@ static BtStatus create_sdp_record_in_main_thread(bluetooth_sdp_record* record, i
 }
 
 BtStatus create_sdp_record(bluetooth_sdp_record* record, int* record_handle) {
-  if (com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-      return get_main_thread()->DoInThreadSynchronously(&create_sdp_record_in_main_thread,
-                                                      record, record_handle);
-  }
-
-  return create_sdp_record_in_main_thread(record, record_handle);
+  return get_main_thread()->DoInThreadSynchronously(&create_sdp_record_in_main_thread,
+                                                  record, record_handle);
 }
 
 static BtStatus remove_sdp_record_in_main_thread(int record_id) {
@@ -393,15 +347,10 @@ static BtStatus remove_sdp_record_in_main_thread(int record_id) {
 
   bluetooth_sdp_record* record;
   bluetooth_sdp_types sdp_type = SDP_TYPE_RAW;
-  {
-    if (!com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-      std::unique_lock<std::recursive_mutex> lock(sdp_lock);
-    }
 
-    record = sdp_slots[record_id].record_data;
-    if (record != NULL) {
-      sdp_type = record->hdr.type;
-    }
+  record = sdp_slots[record_id].record_data;
+  if (record != NULL) {
+    sdp_type = record->hdr.type;
   }
 
   tBTA_SERVICE_ID service_id = 0;
@@ -441,19 +390,15 @@ static BtStatus remove_sdp_record_in_main_thread(int record_id) {
 }
 
 BtStatus remove_sdp_record(int record_id) {
-  if (com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-    // Use async dispatch to avoid aborting when bt_main_thread is backlogged
-    // (DoInThreadSynchronously can abort on timeout — CR 4580398).
-    // Fallback to a direct call on the same thread if posting fails.
-    if (!do_in_main_thread(base::BindOnce([](int id) { remove_sdp_record_in_main_thread(id); },
-                                          record_id))) {
-      log::warn("do_in_main_thread failed, calling remove_sdp_record_in_main_thread directly");
-      return remove_sdp_record_in_main_thread(record_id);
-    }
-    return BtifStatus();
+  // Use async dispatch to avoid aborting when bt_main_thread is backlogged
+  // (DoInThreadSynchronously can abort on timeout — CR 4580398).
+  // Fallback to a direct call on the same thread if posting fails.
+  if (!do_in_main_thread(base::BindOnce([](int id) { remove_sdp_record_in_main_thread(id); },
+                                        record_id))) {
+    log::warn("do_in_main_thread failed, calling remove_sdp_record_in_main_thread directly");
+    return remove_sdp_record_in_main_thread(record_id);
   }
-
-  return remove_sdp_record_in_main_thread(record_id);
+  return BtifStatus();
 }
 
 /******************************************************************************
@@ -533,13 +478,8 @@ static void handle_create_record_event_in_main_thread(int id) {
 }
 
 void on_create_record_event(int id) {
-  if (com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-      get_main_thread()->DoInThreadSynchronously(&handle_create_record_event_in_main_thread,
-                                                      id);
-  }
-  else {
-    handle_create_record_event_in_main_thread(id);
-  }
+  get_main_thread()->DoInThreadSynchronously(&handle_create_record_event_in_main_thread,
+                                                  id);
 }
 
 static void handle_remove_record_event_in_main_thread(int handle) {
@@ -556,13 +496,8 @@ static void handle_remove_record_event_in_main_thread(int handle) {
 }
 
 void on_remove_record_event(int id) {
-  if (com_android_bluetooth_flags_btsec_sdp_database_thread_sync()) {
-      get_main_thread()->DoInThreadSynchronously(&handle_remove_record_event_in_main_thread,
-                                                      id);
-  }
-  else {
-    handle_remove_record_event_in_main_thread(id);
-  }
+  get_main_thread()->DoInThreadSynchronously(&handle_remove_record_event_in_main_thread,
+                                                  id);
 }
 
 /****
