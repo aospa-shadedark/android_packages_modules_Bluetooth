@@ -419,18 +419,19 @@ static void btif_hf_upstreams_evt(uint16_t event, char* p_param) {
           if (p_data->open.bd_addr == btif_hf_cb[idx].connected_bda) {
             LogMetricHfpRfcommChannelFail(ToGdAddress(p_data->open.bd_addr));
             log::warn(
-                    "btif_hf_cb state[{}] is not expected, possible connection "
+                    "btif_hf_cb idx {} state[{}] is not expected, possible connection "
                     "collision, ignoring AG open failure event for the same device "
                     "{}",
-                    p_data->open.status, p_data->open.bd_addr);
+                    idx, p_data->open.status, p_data->open.bd_addr);
+            reset_control_block(&btif_hf_cb[idx]);
           } else {
             LogMetricHfpRfcommCollisionFail(ToGdAddress(p_data->open.bd_addr));
             log::warn(
-                    "btif_hf_cb state[{}] is not expected, possible connection "
+                    "btif_hf_cb idx {} state[{}] is not expected, possible connection "
                     "collision, ignoring AG open failure event for the different "
                     "devices btif_hf_cb bda: {}, p_data bda: {}, report disconnect "
                     "state for p_data bda.",
-                    p_data->open.status, btif_hf_cb[idx].connected_bda, p_data->open.bd_addr);
+                    idx, p_data->open.status, btif_hf_cb[idx].connected_bda, p_data->open.bd_addr);
             bt_hf_callbacks->ConnectionStateCallback(BTHF_CONNECTION_STATE_DISCONNECTED,
                                                      &(p_data->open.bd_addr));
             bluetooth::shim::CountCounterMetrics(

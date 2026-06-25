@@ -24,7 +24,10 @@ import static java.util.Objects.requireNonNull;
 
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.media.AudioManager;
 import android.support.v4.media.MediaBrowserCompat.MediaItem;
 import android.sysprop.BluetoothProperties;
@@ -174,6 +177,11 @@ public class AvrcpControllerService extends ProfileService {
         setActiveDevice(null);
         Intent stopIntent = new Intent(this, BluetoothMediaBrowserService.class);
         stopService(stopIntent);
+        try {
+            unregisterReceiver(mBroadcastReceiver);
+        } catch (IllegalArgumentException e) {
+            Log.w(TAG, "mBroadcastReceiver was not registered");
+        }
         for (AvrcpControllerStateMachine stateMachine : mDeviceStateMap.values()) {
             stateMachine.quitNow();
         }
@@ -209,6 +217,27 @@ public class AvrcpControllerService extends ProfileService {
         }
     }
 
+    private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            Log.d(TAG, "onReceive(): action: " + action);
+            if (action.equals(AudioManager.ACTION_VOLUME_CHANGED)) {
+                int streamType = intent.getIntExtra(AudioManager.EXTRA_VOLUME_STREAM_TYPE, -1);
+                if (streamType == AudioManager.STREAM_MUSIC) {
+                        synchronized (mDeviceStateMap) {
+                            for (AvrcpControllerStateMachine sm : mDeviceStateMap.values()) {
+                                if (sm != null) {
+                                    sm.sendMessage(
+                                            AvrcpControllerStateMachine.MESSAGE_PROCESS_VOLUME_CHANGED_NOTIFICATION);
+                                }
+                            }
+                        }
+                }
+            }
+        }
+    };
+
     /** Set the current active device, notify devices of activity status */
     @VisibleForTesting
     public boolean setActiveDevice(BluetoothDevice device) {
@@ -227,6 +256,10 @@ public class AvrcpControllerService extends ProfileService {
 
         // Try and update the active device
         synchronized (mActiveDeviceLock) {
+            if (device == null) {
+              Log.d(TAG, "Ignore A2dpSink setActiveDevice as device : "+device);
+              return true;
+            }
             if (a2dpSinkService.setActiveDevice(device)) {
                 mActiveDevice = device;
 
@@ -689,6 +722,7 @@ public class AvrcpControllerService extends ProfileService {
         // we quit the new one so we don't leak a thread
         if (existingStateMachine == null) {
             newStateMachine.start();
+            registerReceiver(device);
             return newStateMachine;
         } else {
             // If you try to quit a StateMachine that hasn't been constructed yet, the StateMachine
@@ -701,6 +735,12 @@ public class AvrcpControllerService extends ProfileService {
 
     protected AvrcpCoverArtManager getCoverArtManager() {
         return mCoverArtManager;
+    }
+
+    void registerReceiver(BluetoothDevice device) {
+        Log.d(TAG, " Register receiver for device: " + device);
+        IntentFilter filter = new IntentFilter(AudioManager.ACTION_VOLUME_CHANGED);
+        registerReceiver(mBroadcastReceiver, filter);
     }
 
     List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {

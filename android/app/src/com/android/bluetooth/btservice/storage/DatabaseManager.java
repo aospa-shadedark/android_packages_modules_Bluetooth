@@ -824,6 +824,32 @@ public class DatabaseManager {
         }
         return null;
     }
+    /**
+     * Gets the last connected A2DP Sink device
+     *
+     * @return the most recently connected A2DP Sink device
+     *         or null if no A2DP Sink device was found
+     */
+    public BluetoothDevice getMostRecentlyConnectedA2dpSinkDevice() {
+        synchronized (mMetadataCache) {
+            List<Metadata> sortedMetadata = new ArrayList<>(mMetadataCache.values());
+            sortedMetadata.sort((o1, o2) -> Long.compare(o2.last_active_time, o1.last_active_time));
+            for (Metadata metadata : sortedMetadata) {
+                if (metadata.getProfileConnectionPolicy(
+                       BluetoothProfile.A2DP_SINK) == CONNECTION_POLICY_ALLOWED) {
+                    try {
+                        return mAdapter.getRemoteDevice(metadata.getAddress());
+                    } catch (IllegalArgumentException ex) {
+                        Log.d(
+                              TAG,
+                              "getMostRecentlyConnectedA2dpSinkDevice: Invalid address for device "
+                                        + metadata.getAnonymizedAddress());
+                    }
+                }
+            }
+        }
+        return null;
+    }
 
     /**
      * Gets the last active HFP device

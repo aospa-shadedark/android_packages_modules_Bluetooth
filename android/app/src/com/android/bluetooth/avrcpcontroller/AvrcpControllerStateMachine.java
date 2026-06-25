@@ -109,6 +109,7 @@ class AvrcpControllerStateMachine extends StateMachine {
 
     // Notification types for Avrcp protocol JNI.
     private static final byte NOTIFICATION_RSP_TYPE_INTERIM = 0x00;
+    private static final byte NOTIFICATION_RSP_TYPE_CHANGED = 0x01;
 
     private final AdapterService mAdapterService;
     private final AudioManager mAudioManager;
@@ -136,10 +137,14 @@ class AvrcpControllerStateMachine extends StateMachine {
     private boolean mRemoteControlConnected = false;
     private boolean mBrowsingConnected = false;
     private boolean mIsSplitSink = false;
+    private boolean mAbsVolNotificationRequested = false;
 
     private AvrcpPlayer mAddressedPlayer;
     private int mAddressedPlayerId;
     private int mVolumeNotificationLabel = -1;
+    private int mVolumeChangedNotificationsToIgnore = 0;
+    private int mPreviousPercentageVol = -1;
+    private int cachedVolumeIndex = 0;
 
     // Number of items to get in a single fetch
     static final int ITEM_PAGE_SIZE = 20;
@@ -563,11 +568,59 @@ class AvrcpControllerStateMachine extends StateMachine {
 
                 case MESSAGE_PROCESS_REGISTER_ABS_VOL_NOTIFICATION:
                     mVolumeNotificationLabel = msg.arg1;
+                    mAbsVolNotificationRequested = true;
                     mNativeInterface.sendRegisterAbsVolRsp(
                             mDeviceAddress,
                             NOTIFICATION_RSP_TYPE_INTERIM,
                             getAbsVolume(),
                             mVolumeNotificationLabel);
+                    return true;
+
+                case MESSAGE_PROCESS_VOLUME_CHANGED_NOTIFICATION:
+                    if (mVolumeChangedNotificationsToIgnore > 0) {
+                        mVolumeChangedNotificationsToIgnore--;
+                        if (mVolumeChangedNotificationsToIgnore == 0) {
+                            removeMessages(MESSAGE_INTERNAL_ABS_VOL_TIMEOUT);
+                        }
+                    } else {
+                        if (mAbsVolNotificationRequested) {
+                            int percentageVol = getAbsVolume();
+                            Log.d(TAG, " percentageVol = " + percentageVol);
+                            if (percentageVol != mPreviousPercentageVol) {
+                                    Log.d(TAG, " Sending Changed Response = " + percentageVol +
+                                          " label: " + msg.arg1 + " mPreviousPercentageVol: " +
+                                          mPreviousPercentageVol);
+                                if (mIsSplitSink) {
+                                    int currIndex = mAudioManager.getStreamVolume(
+                                                            AudioManager.STREAM_MUSIC);
+                                    String volume_param  = "btsink_volume=" + currIndex;
+                                    mAudioManager.setParameters(volume_param);
+                                }
+                                mPreviousPercentageVol = percentageVol;
+                                Log.d(TAG,"cachedVolumeIndex : "+ cachedVolumeIndex +"mm index:"+
+                                       mAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC));
+                                if (cachedVolumeIndex !=
+                                    mAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC)) {
+                                    mNativeInterface.sendRegisterAbsVolRsp(
+                                    mDeviceAddress,
+                                    NOTIFICATION_RSP_TYPE_CHANGED,
+                                    getAbsVolume(),
+                                    mVolumeNotificationLabel);
+
+                                    mAbsVolNotificationRequested = false;
+                                    cachedVolumeIndex =
+                                        mAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+                                }
+                            }
+                        }
+                    }
+                    return true;
+                case MESSAGE_INTERNAL_ABS_VOL_TIMEOUT:
+                    // Volume changed notifications should come back promptly from the
+                    // AudioManager, if for some reason some notifications were squashed don't
+                    // prevent future notifications.
+                    Log.d(TAG, "Timed out on volume changed notification");
+                    mVolumeChangedNotificationsToIgnore = 0;
                     return true;
 
                 case MESSAGE_GET_FOLDER_ITEMS:
@@ -1257,6 +1310,7 @@ class AvrcpControllerStateMachine extends StateMachine {
             String volume_param = "btsink_volume="+reqLocalVolume;
             Log.d(TAG,"setAbsVolume : "+volume_param);
             mAudioManager.setParameters(volume_param);
+            cachedVolumeIndex = reqLocalVolume;
         }
     }
 

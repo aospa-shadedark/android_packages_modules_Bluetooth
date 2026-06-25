@@ -2733,9 +2733,9 @@ bool BtifAvStateMachine::StateOpened::ProcessEvent(uint32_t event, void* p_data)
               * which will not trigger actual playback
               */
             if (peer_.CheckFlags(BtifAvPeer::kFlagPendingStart)) {
-              status = Status::SUCCESS;
               peer_.ClearFlags(BtifAvPeer::kFlagPendingStart);
             }
+            status = Status::SUCCESS;
             bluetooth::audio::a2dp::ack_stream_started(status);
             log::debug("vsc_command_status {}", peer_.GetVscStatus());
             peer_.StateMachine().TransitionTo(BtifAvStateMachine::kStateStarted);
@@ -3353,12 +3353,6 @@ bool BtifAvStateMachine::StateStarted::ProcessEvent(uint32_t event, void* p_data
         bluetooth::audio::a2dp::ack_stream_suspended(Status::SUCCESS);
         btif_report_audio_state(peer_.PeerAddress(),
                              BTAV_AUDIO_STATE_REMOTE_SUSPEND, A2dpType::kSink);
-      }
-
-      if (peer_.IsStreamStoppedInternally()) {
-        log::info("Sending suspend indication for HAL recovery");
-        do_in_jni_thread(base::BindOnce(
-             bt_vendor_av_sink_callbacks->suspend_ind_cb, &peer_.PeerAddress()));
       }
 
       peer_.StateMachine().TransitionTo(BtifAvStateMachine::kStateOpened);

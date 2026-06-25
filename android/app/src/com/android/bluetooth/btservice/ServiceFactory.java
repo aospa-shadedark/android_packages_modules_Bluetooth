@@ -32,11 +32,17 @@ import com.android.bluetooth.mcp.McpService;
 import com.android.bluetooth.pan.PanService;
 import com.android.bluetooth.tbs.TbsService;
 import com.android.bluetooth.vc.VolumeControlService;
+import com.android.bluetooth.a2dpsink.A2dpSinkService;
 
 // Factory class to create instances of static services. Useful in mocking the service objects.
 public class ServiceFactory {
     public A2dpService getA2dpService() {
         return A2dpService.getA2dpService();
+    }
+
+    // Add method to get A2dpSinkService
+    public A2dpSinkService getA2dpSinkService() {
+        return A2dpSinkService.getA2dpSinkService();
     }
 
     public CsipSetCoordinatorService getCsipSetCoordinatorService() {

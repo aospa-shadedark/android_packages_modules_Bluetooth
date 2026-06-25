@@ -1804,6 +1804,13 @@ public class BluetoothInCallService extends InCallService {
         }
 
         String uri = addressUri == null ? null : addressUri.toString();
+        // %2B is the URL-encoded form of '+'.
+        // URIs may be percent-encoded when received
+        // Decode it so the call URI matches the expected telephony format: tel:+<number>.
+        if (uri.contains("%")) {
+            uri = Uri.parse(uri).decode(uri);
+        }
+        Log.i(TAG, "Call URI: " + uri);
         int callFlags = call.isIncoming() ? 0 : BluetoothLeCall.FLAG_OUTGOING_CALL;
 
         String friendlyName = call.getCallerDisplayName();

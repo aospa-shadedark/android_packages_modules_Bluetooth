@@ -521,21 +521,24 @@ public class A2dpSinkService extends ProfileService {
             return;
         }
         A2dpSinkStateMachine stateMachine = getOrCreateStateMachine(device);
-
-        if (event.mState == BluetoothProfile.STATE_DISCONNECTED) {
-            synchronized (mStreamHandlerLock) {
-                if (sAudioIsEnabled == true) {
-                    mA2dpSinkStreamHandler
-                            .obtainMessage(A2dpSinkStreamHandler.STOP_SINK)
-                            .sendToTarget();
-                    sAudioIsEnabled = false;
-                }
-                if (mAudioManager != null) {
-                    Message msg =
-                            mA2dpSinkStreamHandler.obtainMessage(
-                                    A2dpSinkStreamHandler.REMOVE_ACTIVE);
-                    msg.obj = device;
-                    mA2dpSinkStreamHandler.sendMessage(msg);
+        synchronized (sStateLock) {
+            Log.d(TAG, "Device : " + device + "mStreamingDevice : "+mStreamingDevice);
+            if (event.mState == BluetoothProfile.STATE_DISCONNECTED
+                    && device.equals(mStreamingDevice)) {
+                synchronized (mStreamHandlerLock) {
+                    if (sAudioIsEnabled == true) {
+                        mA2dpSinkStreamHandler
+                                .obtainMessage(A2dpSinkStreamHandler.STOP_SINK)
+                                .sendToTarget();
+                        sAudioIsEnabled = false;
+                    }
+                    if (mAudioManager != null) {
+                        Message msg =
+                                mA2dpSinkStreamHandler.obtainMessage(
+                                        A2dpSinkStreamHandler.REMOVE_ACTIVE);
+                        msg.obj = device;
+                        mA2dpSinkStreamHandler.sendMessage(msg);
+                    }
                 }
             }
         }

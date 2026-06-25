@@ -1356,7 +1356,7 @@ public class MediaControlGattService implements MediaControlGattServiceInterface
             mAdapterService.getActiveDevices(BluetoothProfile.LE_AUDIO);
 
         if (!isBroadcastActive() && (req.opcode() == Request.Opcodes.PAUSE) &&
-                !mLeAudioActiveDevices.contains(device)) {
+                !mLeAudioActiveDevices.contains(device) && !Utils.isPtsTestMode()) {
             Log.w(TAG, "handleMediaControlPointRequest: PAUSE command received from inactive device");
 
             // Prepare result notification
@@ -1385,7 +1385,7 @@ public class MediaControlGattService implements MediaControlGattServiceInterface
         }
 
         if (!isBroadcastActive() && (req.opcode() != Request.Opcodes.PLAY) &&
-                !mLeAudioActiveDevices.contains(device)) {
+                !mLeAudioActiveDevices.contains(device) && !Utils.isPtsTestMode()) {
             Log.w(TAG, "handleMediaControlPointRequest: command came from inactive device, ignore mcp passthrough");
             mHandler.post(() -> {
                 setMediaControlRequestResult(new Request(opcode, 0),

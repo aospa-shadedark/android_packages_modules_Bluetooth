@@ -276,4 +276,18 @@ public class InitiatorFragment extends Fragment {
     public void onDestroyView() {
         super.onDestroyView();
     }
+
+    public void onAdapterStateOff() {
+        if (mInitiatorViewModel != null) {
+            mInitiatorViewModel.restoreToDefaultParams();
+        }
+
+        if (mBleConnectionViewModel != null) {
+            mBleConnectionViewModel.restoreToDefaultParams();
+        }
+    }
+
+    public void onAdapterStateOn() {
+        printLog("Bluetooth turned on ");
+    }
 }

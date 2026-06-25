@@ -64,4 +64,20 @@ public class ReflectorFragment extends Fragment {
         super.onDestroyView();
         mBleConnectionViewModel.checkstopadvertiser();
     }
+
+    public void onAdapterStateOff() {
+        if (mBleConnectionViewModel != null) {
+            mBleConnectionViewModel.restoreToDefaultParams();
+        }
+
+        if (mLogText != null) {
+            mLogText.setText("Bluetooth OFF, advertising stopped");
+        }
+    }
+
+    public void onAdapterStateOn() {
+        if (mLogText != null) {
+            mLogText.setText("Bluetooth ON, ready for new session");
+        }
+    }
 }

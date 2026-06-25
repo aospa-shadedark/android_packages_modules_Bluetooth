@@ -874,7 +874,7 @@
       "name": "VND_Two-OneChan-SnkAse-Aptx_LeX_V1_32_2-Two-OneChan-SrcAse-Aptx_LeX_V1_32_2_L_R",
       "codec_config_name": "VND_Two-OneChan-SnkAse-Aptx_LeX_V1_32_2-Two-OneChan-SrcAse-Aptx_LeX_V1_32_2_L_R",
       "qos_config_name": [
-        "VND_QoS_Config_R2_L6"
+        "VND_QoS_Config_R2_L8"
       ],
       "codec_metadata_name": [
         "VND_AptxLeX_V1_VS_Metadata"
@@ -12264,9 +12264,9 @@
       "max_transport_latency": 10
     },
     {
-      "name": "VND_QoS_Config_R2_L6",
+      "name": "VND_QoS_Config_R2_L8",
       "retransmission_number": 2,
-      "max_transport_latency": 6
+      "max_transport_latency": 8
     }
   ],
   "codec_specific_metadata": [

@@ -3479,7 +3479,9 @@ void bta_av_vendor_offload_stop() {
   log::verbose("");
 
   if (bta_av_cb.offload_start_v2) {
-    tBTA_AV_SCB* p_scb = bta_av_hndl_to_scb(bta_av_cb.offload_start_pending_hndl);
+    uint16_t start_hndl = (bta_av_cb.offload_start_pending_hndl != BTA_AV_INVALID_HANDLE) ?
+        bta_av_cb.offload_start_pending_hndl : bta_av_cb.offload_started_hndl;
+    tBTA_AV_SCB* p_scb = bta_av_hndl_to_scb(start_hndl);
     if (p_scb == nullptr) {
       return;
     }

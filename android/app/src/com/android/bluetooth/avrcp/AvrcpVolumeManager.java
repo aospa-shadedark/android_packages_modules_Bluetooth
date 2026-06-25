@@ -22,13 +22,16 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.res.Resources;
 import android.media.AudioDeviceAttributes;
 import android.media.AudioDeviceCallback;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.util.Log;
+import android.os.SystemProperties;
 
 import com.android.bluetooth.BluetoothEventLogger;
+import com.android.bluetooth.R;
 import com.android.bluetooth.Utils;
 import com.android.bluetooth.btservice.AdapterService;
 import com.android.internal.annotations.VisibleForTesting;
@@ -61,11 +64,19 @@ class AvrcpVolumeManager extends AudioDeviceCallback {
     private static final String VOLUME_MAP = "bluetooth_volume_map";
     private static final String VOLUME_CHANGE_LOG_TITLE = "BTAudio Volume Events";
 
+    private static final String CONFIG_SAFE_MEDIA_VOLUME_PROP =
+            "bluetooth.avrcp.target.safe_media_volume.config";
+
     @VisibleForTesting static final int AVRCP_MAX_VOL = 127;
-    private static final int STREAM_MUSIC = AudioManager.STREAM_MUSIC;
     private static final int VOLUME_CHANGE_LOGGER_SIZE = 30;
+    private final int mSafeMediaVolume;
     private final int mDeviceMaxVolume;
     private final int mNewDeviceVolume;
+
+    // We can't retrieve the system volume directly as we don't know which stream is used.
+    // We should store it when a new volume value is set. Used for logging only.
+    private int mCurrentSystemVolume = -1;
+
     private final BluetoothEventLogger mVolumeEventLogger =
             new BluetoothEventLogger(VOLUME_CHANGE_LOGGER_SIZE, VOLUME_CHANGE_LOG_TITLE);
 
@@ -179,6 +190,8 @@ class AvrcpVolumeManager extends AudioDeviceCallback {
         mAudioManager = audioManager;
         mNativeInterface = nativeInterface;
         mDeviceMaxVolume = mAudioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+        mSafeMediaVolume = SystemProperties.getInt(CONFIG_SAFE_MEDIA_VOLUME_PROP, -1);
+
         mNewDeviceVolume = mDeviceMaxVolume / 2;
 
         mAudioManager.registerAudioDeviceCallback(this, null);
@@ -208,31 +221,24 @@ class AvrcpVolumeManager extends AudioDeviceCallback {
      * Stores system volume (0 - {@code mDeviceMaxVolume}) for device in {@code mVolumeMap} and
      * writes the map in the {@link SharedPreferences}.
      */
-    synchronized void storeVolumeForDevice(@NonNull BluetoothDevice device, int storeVolume) {
+    synchronized void storeVolumeForDevice(@NonNull BluetoothDevice device, int newVolume) {
+        String logHeader = "storeVolumeForDevice(" + device + ", " + newVolume + "): ";
+
+        mCurrentSystemVolume = newVolume;
+
         if (mAdapterService.getBondState(device) != BluetoothDevice.BOND_BONDED) {
             return;
         }
-        SharedPreferences.Editor pref = getVolumeMap().edit();
-        mVolumeEventLogger.logd(
-                TAG,
-                "storeVolume: Storing stream volume level for device "
-                        + device
-                        + " : "
-                        + storeVolume);
-        mVolumeMap.put(device, storeVolume);
-        pref.putInt(device.getAddress(), storeVolume);
+
+        if (mSafeMediaVolume != -1 && newVolume > mSafeMediaVolume) {
+            newVolume = mSafeMediaVolume;
+            Log.w(TAG, logHeader + "Saved volume overrode to safe volume" + newVolume);
+        }
+        mVolumeMap.put(device, newVolume);
+        mVolumeEventLogger.logd(TAG, logHeader + "Final volume stored is " + newVolume);
         // Always use apply() since it is asynchronous, otherwise the call can hang waiting for
         // storage to be written.
-        pref.apply();
-    }
-
-    /**
-     * Retrieves system volume (0 - {@code mDeviceMaxVolume}) and calls {@link
-     * #storeVolumeForDevice(BluetoothDevice, int)} with {@code device}.
-     */
-    synchronized void storeVolumeForDevice(@NonNull BluetoothDevice device) {
-        int storeVolume = mAudioManager.getLastAudibleStreamVolume(STREAM_MUSIC);
-        storeVolumeForDevice(device, storeVolume);
+        getVolumeMap().edit().putInt(device.getAddress(), newVolume).apply();
     }
 
     /**
@@ -299,7 +305,7 @@ class AvrcpVolumeManager extends AudioDeviceCallback {
                 deviceVolume,
                 (deviceVolume != getVolume(device, -1) ? AudioManager.FLAG_SHOW_UI : 0)
                         | AudioManager.FLAG_BLUETOOTH_ABS_VOLUME);
-        storeVolumeForDevice(device);
+        storeVolumeForDevice(device, deviceVolume);
     }
 
     /**
@@ -327,7 +333,7 @@ class AvrcpVolumeManager extends AudioDeviceCallback {
                         + " mDeviceMaxVolume="
                         + mDeviceMaxVolume);
         mNativeInterface.sendVolumeChanged(device, avrcpVolume);
-        storeVolumeForDevice(device);
+        storeVolumeForDevice(device, deviceVolume);
     }
 
     /** Returns whether absolute volume is supported by {@code device}. */
@@ -430,9 +436,7 @@ class AvrcpVolumeManager extends AudioDeviceCallback {
     public void dump(StringBuilder sb) {
         sb.append("AvrcpVolumeManager:\n");
         sb.append("  mCurrentDevice: ").append(mCurrentDevice).append("\n");
-        sb.append("  Current System Volume: ")
-                .append(mAudioManager.getStreamVolume(STREAM_MUSIC))
-                .append("\n");
+        sb.append("  Current System Volume: ").append(mCurrentSystemVolume).append("\n");
         sb.append("  Device Volume Memory Map:\n");
         sb.append(
                 String.format(

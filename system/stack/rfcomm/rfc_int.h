@@ -175,7 +175,7 @@ extern std::unordered_map<uint16_t /* cid */, tRFC_MCB*> rfc_lcid_mcb;
 #define RFC_MCB_INIT_INACT_TIMER 60 /* in seconds */
 
 /* Timer running on the multiplexor channel after last DLCI is released */
-#define RFC_MCB_RELEASE_INACT_TIMER 2 /* in seconds */
+#define RFC_MCB_RELEASE_INACT_TIMER 20 /* in seconds */
 
 #ifdef RFCOMM_PRECALC_FCS
 

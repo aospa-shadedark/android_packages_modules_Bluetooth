@@ -353,6 +353,8 @@ static const uint32_t media_attr_list_no_cover_art[] = {
 static const uint8_t media_attr_list_no_cover_art_size =
         sizeof(media_attr_list_no_cover_art) / sizeof(uint32_t);
 
+static bool is_play_pos_changed_enabled = false;
+
 /*****************************************************************************
  *  Static functions
  *****************************************************************************/
@@ -1091,6 +1093,11 @@ static bt_status_t init_ctrl(btrc_ctrl_callbacks_t* callbacks) {
     initialize_device(&btif_rc_cb.rc_multi_cb[idx]);
   }
 
+  is_play_pos_changed_enabled =
+          osi_property_get_bool("bluetooth.avrcp.play_pos_changed_enabled", false);
+  log::verbose("Play position changed notification enabled: {}",
+               is_play_pos_changed_enabled);
+
   return result;
 }
 
@@ -1322,15 +1329,27 @@ static void handle_get_capability_response(tBTA_AV_META_MSG* pmeta_msg, tAVRC_GE
     /* Todo: Check if list can be active when we hit here */
     p_dev->rc_supported_event_list = list_new(osi_free);
     for (xx = 0; xx < p_rsp->count; xx++) {
-      /* Skip registering for Play position change notification */
-      if ((p_rsp->param.event_id[xx] == AVRC_EVT_PLAY_STATUS_CHANGE) ||
-          (p_rsp->param.event_id[xx] == AVRC_EVT_TRACK_CHANGE) ||
-          (p_rsp->param.event_id[xx] == AVRC_EVT_PLAY_POS_CHANGED) ||
-          (p_rsp->param.event_id[xx] == AVRC_EVT_APP_SETTING_CHANGE) ||
-          (p_rsp->param.event_id[xx] == AVRC_EVT_NOW_PLAYING_CHANGE) ||
-          (p_rsp->param.event_id[xx] == AVRC_EVT_ADDR_PLAYER_CHANGE) ||
-          (p_rsp->param.event_id[xx] == AVRC_EVT_UIDS_CHANGE) ||
-          (p_rsp->param.event_id[xx] == AVRC_EVT_AVAL_PLAYERS_CHANGE)) {
+      bool should_register = false;
+      switch (p_rsp->param.event_id[xx]) {
+        case AVRC_EVT_PLAY_STATUS_CHANGE:
+        case AVRC_EVT_TRACK_CHANGE:
+        case AVRC_EVT_APP_SETTING_CHANGE:
+        case AVRC_EVT_NOW_PLAYING_CHANGE:
+        case AVRC_EVT_ADDR_PLAYER_CHANGE:
+        case AVRC_EVT_UIDS_CHANGE:
+        case AVRC_EVT_AVAL_PLAYERS_CHANGE:
+          should_register = true;
+          break;
+        case AVRC_EVT_PLAY_POS_CHANGED:
+          if (is_play_pos_changed_enabled) {
+            should_register = true;
+          }
+          break;
+        default:
+          break;
+      }
+
+      if (should_register) {
         p_event = (btif_rc_supported_event_t*)osi_malloc(sizeof(btif_rc_supported_event_t));
         p_event->event_id = p_rsp->param.event_id[xx];
         p_event->status = eNOT_REGISTERED;

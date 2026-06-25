@@ -2392,25 +2392,7 @@ void btif_dm_sec_evt(tBTA_DM_SEC_EVT event, tBTA_DM_SEC* p_data) {
  * Returns          void
  *
  ******************************************************************************/
-static const char* dump_dm_acl_event(tBTA_DM_ACL_EVT event) {
-  switch (event) {
-    case BTA_DM_LINK_UP_EVT:
-      return "BTA_DM_LINK_UP_EVT";
-    case BTA_DM_LINK_UP_FAILED_EVT:
-      return "BTA_DM_LINK_UP_FAILED_EVT";
-    case BTA_DM_LINK_DOWN_EVT:
-      return "BTA_DM_LINK_DOWN_EVT";
-    case BTA_DM_LE_FEATURES_READ:
-      return "BTA_DM_LE_FEATURES_READ";
-    case BTA_DM_LPP_OFFLOAD_FEATURES_READ:
-      return "BTA_DM_LPP_OFFLOAD_FEATURES_READ";
-    default:
-      return "UNKNOWN_BTA_DM_ACL_EVT";
-  }
-}
-
 void btif_dm_acl_evt(tBTA_DM_ACL_EVT event, tBTA_DM_ACL* p_data) {
-  log::debug("ACL event: {}", dump_dm_acl_event(event));
   RawAddress bd_addr;
 
   switch (event) {
@@ -2431,19 +2413,6 @@ void btif_dm_acl_evt(tBTA_DM_ACL_EVT event, tBTA_DM_ACL* p_data) {
           is_device_le_audio_capable(bd_addr)) {
         stack::l2cap::get_interface().L2CA_LockBleConnParamsForProfileConnection(bd_addr, true);
       }
-
-      // If ACL came up and we still have pending SDP scheduled for this bonded device, start it now.
-      if ((pairing_cb.state == BT_BOND_STATE_BONDED) &&
-          (bd_addr == pairing_cb.bd_addr || bd_addr == pairing_cb.static_bdaddr) &&
-          (pairing_cb.sdp_over_classic == btif_dm_pairing_cb_t::ServiceDiscoveryState::SCHEDULED)) {
-        log::info("ACL up and SDP pending for {}, starting service discovery", bd_addr);
-        // Ensure inquiry is stopped before attempting service discovery
-        btif_dm_cancel_discovery();
-        if (pairing_cb.sdp_attempts == 0) {
-          pairing_cb.sdp_attempts = 1;
-        }
-        btif_dm_get_remote_services(bd_addr, BT_TRANSPORT_BR_EDR);
-      }
       break;
 
     case BTA_DM_LINK_UP_FAILED_EVT:
@@ -2460,7 +2429,6 @@ void btif_dm_acl_evt(tBTA_DM_ACL_EVT event, tBTA_DM_ACL* p_data) {
       bd_addr = p_data->link_down.bd_addr;
       btm_set_bond_type_dev(p_data->link_down.bd_addr, BOND_TYPE_UNKNOWN);
       GetInterfaceToProfiles()->onLinkDown(bd_addr, p_data->link_down.transport_link_type);
-      bta_dm_disc_stop();
 
       bt_conn_direction_t direction;
       switch (btm_get_acl_disc_reason_code()) {

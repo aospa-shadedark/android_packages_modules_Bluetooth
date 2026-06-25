@@ -2842,7 +2842,9 @@ public class AdapterService extends Service {
 
         // Pairing is unreliable while scanning, so cancel discovery
         // Note, remove this when native stack improves
-        mNativeInterface.cancelDiscovery();
+        if (mAdapterProperties.isDiscovering()) {
+            mNativeInterface.cancelDiscovery();
+        }
 
         Message msg = mBondStateMachine.obtainMessage(BondStateMachine.CREATE_BOND);
         msg.obj = device;

@@ -152,4 +152,10 @@ public class InitiatorViewModel extends AndroidViewModel {
                     liveDistanceSingleton.postValue(distanceMeters);
                 }
             };
+
+    public void restoreToDefaultParams() {
+      distance_count = 0;
+      mCsStarted.postValue(false);
+      mLogText.postValue("Bluetooth OFF, stopped CS session");
+  }
 }

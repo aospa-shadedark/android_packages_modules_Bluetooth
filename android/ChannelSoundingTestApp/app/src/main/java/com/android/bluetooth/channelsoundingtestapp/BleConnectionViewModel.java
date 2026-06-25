@@ -23,6 +23,10 @@ import android.annotation.SuppressLint;
 import android.app.Application;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothGattServer;
@@ -75,11 +79,42 @@ public class BleConnectionViewModel extends AndroidViewModel {
 
     private GattState mExpectedGattState = GattState.DISCONNECTED;
 
+    private final BroadcastReceiver mBluetoothStateReceiver =
+            new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (!BluetoothAdapter.ACTION_STATE_CHANGED.equals(intent.getAction())) {
+                        return;
+                    }
+
+                    int state =
+                            intent.getIntExtra(
+                                    BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+                    if (state == BluetoothAdapter.STATE_TURNING_OFF
+                            || state == BluetoothAdapter.STATE_OFF
+                            || state == BluetoothAdapter.STATE_TURNING_ON) {
+                        mExpectedGattState = GattState.DISCONNECTED;
+                        mGattState.postValue(mExpectedGattState);
+                        if (mBluetoothGatt != null) {
+                            try {
+                                mBluetoothGatt.close();
+                            } catch (RuntimeException e) {
+                                // Ignore stale binder during BT reset.
+                            }
+                            mBluetoothGatt = null;
+                        }
+                        mTargetDevice.postValue(null);
+                    }
+                }
+            };
+
     /** Constructor */
     public BleConnectionViewModel(@NonNull Application application) {
         super(application);
         mBluetoothManager = application.getSystemService(BluetoothManager.class);
         mBluetoothAdapter = mBluetoothManager.getAdapter();
+        application.registerReceiver(
+                mBluetoothStateReceiver, new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED));
     }
 
     LiveData<Boolean> getIsAdvertising() {
@@ -433,7 +468,38 @@ public class BleConnectionViewModel extends AndroidViewModel {
         }
     }
 
+    @Override
+    protected void onCleared() {
+        getApplication().unregisterReceiver(mBluetoothStateReceiver);
+        super.onCleared();
+    }
+
     private void printLog(@NonNull String logMsg) {
         mLogText.postValue("BT Log: " + logMsg);
+    }
+
+    public void restoreToDefaultParams() {
+        checkstopadvertiser();
+        stopScanning();
+
+        if (mBluetoothGatt != null) {
+            try {
+                mBluetoothGatt.disconnect();
+            } catch (Exception e) {
+                printLog("Failed to disconnect GATT: " + e.getMessage());
+            }
+
+            try {
+                mBluetoothGatt.close();
+            } catch (Exception e) {
+                printLog("Failed to close GATT: " + e.getMessage());
+            }
+            mBluetoothGatt = null;
+        }
+
+        mExpectedGattState = GattState.DISCONNECTED;
+        mGattState.postValue(GattState.DISCONNECTED);
+        mTargetDevice.postValue(null);
+        is_advertising = false;
     }
 }

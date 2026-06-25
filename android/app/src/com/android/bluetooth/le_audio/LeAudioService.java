@@ -2828,8 +2828,16 @@ public class LeAudioService extends ProfileService {
                         + ", isBroadcastPlaying: "
                         + isBroadcastPlaying);
 
-        if (groupId != LE_AUDIO_GROUP_ID_INVALID && groupId != currentlyActiveGroupId) {
-            Log.d(TAG, "Do not stop stream when NULL -> LEA or LEA -> LEA");
+        /* Do not stop stream when NULL -> LEA or LEA -> LEA.
+         * When removing LE Audio active device due to HFP/A2DP handover,
+         * hasFallbackDevice=true indicates a BR-EDR fallback device exists.
+         * Set mHasFallback=true which preventing music from being paused on the fallback
+         * BR-EDR device after the call ends.
+         */
+        if ((groupId != LE_AUDIO_GROUP_ID_INVALID && groupId != currentlyActiveGroupId)
+            || hasFallbackDevice) {
+            Log.d(TAG, "Do not stop stream when NULL -> LEA or LEA -> LEA,"
+                     + " or hasFallbackDevice=" + hasFallbackDevice);
             mHasFallback = true;
         }
 
@@ -3241,6 +3249,7 @@ public class LeAudioService extends ProfileService {
     }
 
     private void handleGroupTransitToInactive(int groupId) {
+        Log.d(TAG, "handleGroupTransitToInactive: groupId: " + groupId);
         mGroupReadLock.lock();
         try {
             LeAudioGroupDescriptor descriptor = getGroupDescriptor(groupId);
