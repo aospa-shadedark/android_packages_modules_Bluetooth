@@ -355,17 +355,6 @@ const tA2DP_ENCODER_INTERFACE* A2DP_VendorGetEncoderInterfaceAptx(
   return &a2dp_encoder_interface_aptx;
 }
 
-bool A2DP_VendorAdjustCodecAptx(uint8_t* p_codec_info) {
-  tA2DP_APTX_CIE cfg_cie;
-
-  // Nothing to do: just verify the codec info is valid
-  if (A2DP_ParseInfoAptx(&cfg_cie, p_codec_info, true) != A2DP_SUCCESS) {
-    return false;
-  }
-
-  return true;
-}
-
 btav_a2dp_codec_index_t A2DP_VendorSourceCodecIndexAptx(const uint8_t* /* p_codec_info */) {
   return BTAV_A2DP_CODEC_INDEX_SOURCE_APTX;
 }

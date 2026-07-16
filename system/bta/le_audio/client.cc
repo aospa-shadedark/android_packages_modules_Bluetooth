@@ -1746,9 +1746,17 @@ public:
         log::info("Call is ended, speed up reconfiguration for media");
         if (group->GetState() != AseState::BTA_LE_AUDIO_ASE_STATE_STREAMING &&
             group->GetTargetState() == AseState::BTA_LE_AUDIO_ASE_STATE_STREAMING) {
-          log::info("stack is pending for CONVERSATIONAL streaming, defer media reconfiguration");
-          defer_media_reconfig_ = true;
-          return;
+          if (LeAudioBroadcaster::IsLeAudioBroadcasterRunning() &&
+              LeAudioBroadcaster::Get()->IsLeAudioBroadcastActive() &&
+              ((in_call_metadata_context_types_.sink.none() &&
+               in_call_metadata_context_types_.source.none()) ||
+               in_call_metadata_context_types_.source.test(LeAudioContextType::MEDIA))) {
+            log::info("Broadcast is active, skip defer and proceed with SetInCall handling");
+          } else {
+            log::info("stack is pending for CONVERSATIONAL streaming, defer media reconfiguration");
+            defer_media_reconfig_ = true;
+            return;
+          }
         }
         if (in_call_metadata_context_types_.sink.none() &&
             in_call_metadata_context_types_.source.none()) {

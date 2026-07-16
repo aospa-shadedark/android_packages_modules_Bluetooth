@@ -657,17 +657,6 @@ const tA2DP_DECODER_INTERFACE* A2DP_GetDecoderInterfaceAac(const uint8_t* p_code
   return &a2dp_decoder_interface_aac;
 }
 
-bool A2DP_AdjustCodecAac(uint8_t* p_codec_info) {
-  tA2DP_AAC_CIE cfg_cie;
-
-  // Nothing to do: just verify the codec info is valid
-  if (A2DP_ParseInfoAac(&cfg_cie, p_codec_info, true) != A2DP_SUCCESS) {
-    return false;
-  }
-
-  return true;
-}
-
 btav_a2dp_codec_index_t A2DP_SourceCodecIndexAac(const uint8_t* /* p_codec_info */) {
   return BTAV_A2DP_CODEC_INDEX_SOURCE_AAC;
 }

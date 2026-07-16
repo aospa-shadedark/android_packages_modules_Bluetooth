@@ -60,10 +60,6 @@ A2dpCodecs::A2dpCodecs(const std::vector<btav_a2dp_codec_config_t>& /* codec_pri
   inc_func_call_count(__func__);
 }
 A2dpCodecs::~A2dpCodecs() { inc_func_call_count(__func__); }
-bool A2DP_AdjustCodec(uint8_t* /* p_codec_info */) {
-  inc_func_call_count(__func__);
-  return false;
-}
 bool A2DP_BuildCodecHeader(const uint8_t* /* p_codec_info */, BT_HDR* /* p_buf */,
                            uint16_t /* frames_per_packet */) {
   inc_func_call_count(__func__);

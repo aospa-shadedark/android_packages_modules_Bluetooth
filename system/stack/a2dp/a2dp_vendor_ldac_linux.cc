@@ -69,8 +69,6 @@ const tA2DP_ENCODER_INTERFACE* A2DP_VendorGetEncoderInterfaceLdac(const uint8_t*
   return nullptr;
 }
 
-bool A2DP_VendorAdjustCodecLdac(uint8_t* p_codec_info) { return false; }
-
 btav_a2dp_codec_index_t A2DP_VendorSourceCodecIndexLdac(const uint8_t* p_codec_info) {
   return BTAV_A2DP_CODEC_INDEX_MAX;
 }

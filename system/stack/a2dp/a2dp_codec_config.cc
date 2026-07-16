@@ -1544,26 +1544,6 @@ const tA2DP_DECODER_INTERFACE* A2DP_GetDecoderInterface(const uint8_t* p_codec_i
   return NULL;
 }
 
-bool A2DP_AdjustCodec(uint8_t* p_codec_info) {
-  tA2DP_CODEC_TYPE codec_type = A2DP_GetCodecType(p_codec_info);
-
-  switch (codec_type) {
-    case A2DP_MEDIA_CT_SBC:
-      return A2DP_AdjustCodecSbc(p_codec_info);
-#if !defined(EXCLUDE_NONSTANDARD_CODECS)
-    case A2DP_MEDIA_CT_AAC:
-      return A2DP_AdjustCodecAac(p_codec_info);
-    case A2DP_MEDIA_CT_NON_A2DP:
-      return A2DP_VendorAdjustCodec(p_codec_info);
-#endif
-    default:
-      break;
-  }
-
-  log::error("unsupported codec type 0x{:x}", codec_type);
-  return false;
-}
-
 btav_a2dp_codec_index_t A2DP_SourceCodecIndex(const uint8_t* p_codec_info) {
   tA2DP_CODEC_TYPE codec_type = A2DP_GetCodecType(p_codec_info);
 

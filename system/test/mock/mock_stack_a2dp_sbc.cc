@@ -37,7 +37,6 @@ namespace mock {
 namespace stack_a2dp_sbc {
 
 // Function state capture and return values, if needed
-struct A2DP_AdjustCodecSbc A2DP_AdjustCodecSbc;
 struct A2DP_BuildCodecHeaderSbc A2DP_BuildCodecHeaderSbc;
 struct A2DP_CodecEqualsSbc A2DP_CodecEqualsSbc;
 struct A2DP_CodecIndexStrSbc A2DP_CodecIndexStrSbc;
@@ -77,7 +76,6 @@ namespace test {
 namespace mock {
 namespace stack_a2dp_sbc {
 
-bool A2DP_AdjustCodecSbc::return_value = false;
 bool A2DP_BuildCodecHeaderSbc::return_value = false;
 bool A2DP_CodecEqualsSbc::return_value = false;
 const char* A2DP_CodecIndexStrSbc::return_value = nullptr;
@@ -114,10 +112,6 @@ btav_a2dp_codec_index_t A2DP_SourceCodecIndexSbc::return_value =
 }  // namespace test
 
 // Mocked functions, if any
-bool A2DP_AdjustCodecSbc(uint8_t* p_codec_info) {
-  inc_func_call_count(__func__);
-  return test::mock::stack_a2dp_sbc::A2DP_AdjustCodecSbc(p_codec_info);
-}
 bool A2DP_BuildCodecHeaderSbc(const uint8_t* p_codec_info, BT_HDR* p_buf,
                               uint16_t frames_per_packet) {
   inc_func_call_count(__func__);

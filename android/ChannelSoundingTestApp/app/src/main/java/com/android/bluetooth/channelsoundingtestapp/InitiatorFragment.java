@@ -155,19 +155,19 @@ public class InitiatorFragment extends Fragment {
             }
         });
 
-        mInitiatorViewModel = new ViewModelProvider(this).get(InitiatorViewModel.class);
-        mBleConnectionViewModel = new ViewModelProvider(this).get(BleConnectionViewModel.class);
+        mInitiatorViewModel = new ViewModelProvider(requireActivity()).get(InitiatorViewModel.class);
+        mBleConnectionViewModel = new ViewModelProvider(requireActivity()).get(BleConnectionViewModel.class);
         mBleConnectionViewModel
                 .getLogText()
                 .observe(
-                        getActivity(),
+                        getViewLifecycleOwner(),
                         log -> {
                             mLogText.setText(log);
                         });
         mBleConnectionViewModel
                 .getTargetDevice()
                 .observe(
-                        getActivity(),
+                        getViewLifecycleOwner(),
                         targetDevice -> {
                             mInitiatorViewModel.setTargetDevice(targetDevice);
                         });
@@ -198,7 +198,7 @@ public class InitiatorFragment extends Fragment {
         mInitiatorViewModel
                 .getCsStarted()
                 .observe(
-                        getActivity(),
+                        getViewLifecycleOwner(),
                         started -> {
                             if (started) {
                                 mButtonCs.setText("Stop Distance Measurement");
@@ -210,7 +210,7 @@ public class InitiatorFragment extends Fragment {
         mInitiatorViewModel
                 .getLogText()
                 .observe(
-                        getActivity(),
+                        getViewLifecycleOwner(),
                         log -> {
                             mLogText.setText(log);
                         });
@@ -218,7 +218,7 @@ public class InitiatorFragment extends Fragment {
         mInitiatorViewModel
                 .getDistanceResult()
                 .observe(
-                        getActivity(),
+                        getViewLifecycleOwner(),
                         distanceMeters -> {
                             mDistanceCanvasView.addNode(Math.round(distanceMeters * 100.0) / 100.0, /* abort= */ false);
                             mDistanceText.setText(

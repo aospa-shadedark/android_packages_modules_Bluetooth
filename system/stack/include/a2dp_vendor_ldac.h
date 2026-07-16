@@ -155,12 +155,6 @@ std::string A2DP_VendorCodecInfoStringLdac(const uint8_t* p_codec_info);
 // supported, otherwise NULL.
 const tA2DP_ENCODER_INTERFACE* A2DP_VendorGetEncoderInterfaceLdac(const uint8_t* p_codec_info);
 
-// Adjusts the A2DP LDAC codec, based on local support and Bluetooth
-// specification.
-// |p_codec_info| contains the codec information to adjust.
-// Returns true if |p_codec_info| is valid and supported, otherwise false.
-bool A2DP_VendorAdjustCodecLdac(uint8_t* p_codec_info);
-
 // Gets the A2DP LDAC Source codec index for a given |p_codec_info|.
 // Returns the corresponding |btav_a2dp_codec_index_t| on success,
 // otherwise |BTAV_A2DP_CODEC_INDEX_MAX|.

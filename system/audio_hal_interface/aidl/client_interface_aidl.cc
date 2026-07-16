@@ -84,19 +84,36 @@ std::vector<AudioCapabilities> BluetoothAudioClientInterface::GetAudioCapabiliti
   if (!is_aidl_available()) {
     return capabilities;
   }
-  auto provider_factory = IBluetoothAudioProviderFactory::fromBinder(::ndk::SpAIBinder(
-          AServiceManager_waitForService(kDefaultAudioProviderFactoryInterface.c_str())));
 
-  if (provider_factory == nullptr) {
-    log::error("can't get capability from unknown factory");
-    return capabilities;
+  // The factory binder can die mid-query if the audioserver/HAL restarts (e.g.
+  // during bring-up), surfacing as a DEAD_OBJECT transaction failure. The dead
+  // binder stays dead, so re-fetch the factory via waitForService before each
+  // retry rather than re-querying the stale handle. Mirrors FetchAudioProvider.
+  // A failure must not be fatal: degrade gracefully and return empty caps, which
+  // the callers already tolerate (recovery is owned by RenewAudioProviderAndSession).
+  for (int retry_no = 0; retry_no < kFetchAudioProviderRetryNumber; ++retry_no) {
+    auto provider_factory = IBluetoothAudioProviderFactory::fromBinder(::ndk::SpAIBinder(
+            AServiceManager_waitForService(kDefaultAudioProviderFactoryInterface.c_str())));
+
+    if (provider_factory == nullptr) {
+      log::error("can't get capability from unknown factory");
+      return capabilities;
+    }
+
+    capabilities.clear();
+    auto aidl_retval = provider_factory->getProviderCapabilities(session_type, &capabilities);
+    if (aidl_retval.isOk()) {
+      return capabilities;
+    }
+
+    log::error("BluetoothAudioHal::getProviderCapabilities failure: {}, retry number {}",
+               aidl_retval.getDescription(), retry_no + 1);
   }
 
-  auto aidl_retval = provider_factory->getProviderCapabilities(session_type, &capabilities);
-  if (!aidl_retval.isOk()) {
-    log::fatal("BluetoothAudioHal::getProviderCapabilities failure: {}",
-               aidl_retval.getDescription());
-  }
+  log::error("BluetoothAudioHal::getProviderCapabilities failed after {} retries; "
+             "returning no capabilities",
+             kFetchAudioProviderRetryNumber);
+  capabilities.clear();
   return capabilities;
 }
 

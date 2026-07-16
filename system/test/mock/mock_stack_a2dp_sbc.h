@@ -38,18 +38,6 @@ namespace test {
 namespace mock {
 namespace stack_a2dp_sbc {
 
-// Shared state between mocked functions and tests
-// Name: A2DP_AdjustCodecSbc
-// Params: uint8_t* p_codec_info
-// Return: bool
-struct A2DP_AdjustCodecSbc {
-  static bool return_value;
-  std::function<bool(uint8_t* p_codec_info)> body{
-          [](uint8_t* /* p_codec_info */) { return return_value; }};
-  bool operator()(uint8_t* p_codec_info) { return body(p_codec_info); }
-};
-extern struct A2DP_AdjustCodecSbc A2DP_AdjustCodecSbc;
-
 // Name: A2DP_BuildCodecHeaderSbc
 // Params:  const uint8_t* p_codec_info, BT_HDR* p_buf, uint16_t
 // frames_per_packet Return: bool

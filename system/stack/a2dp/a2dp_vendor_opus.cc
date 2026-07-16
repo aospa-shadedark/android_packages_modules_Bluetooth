@@ -609,17 +609,6 @@ const tA2DP_DECODER_INTERFACE* A2DP_VendorGetDecoderInterfaceOpus(
   return &a2dp_decoder_interface_opus;
 }
 
-bool A2DP_VendorAdjustCodecOpus(uint8_t* p_codec_info) {
-  tA2DP_OPUS_CIE cfg_cie;
-
-  // Nothing to do: just verify the codec info is valid
-  if (A2DP_ParseInfoOpus(&cfg_cie, p_codec_info, true) != A2DP_SUCCESS) {
-    return false;
-  }
-
-  return true;
-}
-
 btav_a2dp_codec_index_t A2DP_VendorSourceCodecIndexOpus(const uint8_t* /* p_codec_info */) {
   return BTAV_A2DP_CODEC_INDEX_SOURCE_OPUS;
 }

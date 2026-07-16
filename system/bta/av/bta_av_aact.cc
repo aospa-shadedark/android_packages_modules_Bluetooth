@@ -1861,10 +1861,6 @@ void bta_av_getcap_results(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
               p_scb->PeerAddress(), BTA_AV_SINK_MEDIA_CFG_EVT, &av_sink_codec_info);
     }
 
-    if (uuid_int == UUID_SERVCLASS_AUDIO_SOURCE) {
-      A2DP_AdjustCodec(cfg.codec_info);
-    }
-
     /* open the stream */
     AVDT_OpenReq(p_scb->seps[p_scb->sep_idx].av_handle, p_scb->PeerAddress(), p_scb->hdi,
                  p_scb->sep_info[p_scb->sep_info_idx].seid, &cfg);
