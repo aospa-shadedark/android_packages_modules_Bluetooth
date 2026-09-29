@@ -24,6 +24,7 @@ import static java.util.Objects.requireNonNullElseGet;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
+import android.content.Context;
 import android.content.Intent;
 import android.os.SystemProperties;
 import android.support.v4.media.MediaBrowserCompat.MediaItem;
@@ -32,6 +33,7 @@ import android.util.Log;
 
 import com.android.bluetooth.BluetoothPrefs;
 import com.android.bluetooth.Util;
+import com.android.modules.utils.BackgroundThread;
 import com.android.bluetooth.avrcpcontroller.AvrcpControllerNativeInterface.RemoteFeatures;
 import com.android.bluetooth.btservice.AdapterService;
 import com.android.bluetooth.flags.Flags;
@@ -164,8 +166,12 @@ public class AvrcpControllerService extends ProfileService {
         Log.i(TAG, "cleanup()");
 
         setActiveDevice(null);
-        Intent stopIntent = new Intent(this, BluetoothMediaBrowserService.class);
-        stopService(stopIntent);
+        // stopService() is a synchronous binder IPC to ActivityManager. Calling it on the
+        // BT main thread blocks delivery of other pending service lifecycle events, causing
+	// an ANR when ActivityManager is slow to respond. Post to BackgroundThread instead.
+        final Intent stopIntent = new Intent(this, BluetoothMediaBrowserService.class);
+        final Context appContext = getApplicationContext();
+        BackgroundThread.getHandler().post(() -> appContext.stopService(stopIntent));
         for (AvrcpControllerStateMachine stateMachine : mDeviceStateMap.values()) {
             stateMachine.quitNow();
         }

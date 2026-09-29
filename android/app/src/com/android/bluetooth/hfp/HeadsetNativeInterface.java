@@ -37,10 +37,17 @@ public class HeadsetNativeInterface extends NativeInterface<HeadsetNativeCallbac
         mAdapterService = adapterService;
     }
 
-    private static byte[] getByteAddress(BluetoothDevice device) {
+    private byte[] getByteAddress(BluetoothDevice device) {
         if (device == null) {
             // Set bt_stack's active device to default if java layer set active device to null
             return Util.getBytesFromAddress("00:00:00:00:00:00");
+        }
+        // Native HFP is keyed by the real BR/EDR peer address. The identity address is only that
+        // address when the two addresses were merged by address consolidation, which proves the
+        // identity address is itself a bonded BR/EDR address. Otherwise it can be a separate LE
+        // address that is not reachable over BR/EDR, so use the device address as-is.
+        if (mAdapterService.getRemoteDevices().isAddressConsolidated(device)) {
+            return mAdapterService.getByteBrEdrAddress(device);
         }
         return Util.getByteAddress(device);
     }

@@ -86,6 +86,7 @@ public:
   virtual void InitGattPmCallbacks() = 0;
   virtual void LinkCacheForBondedDevice(const RawAddress& bd_addr) = 0;
   virtual void ClientDump(int fd) = 0;
+  virtual bool IsDiscoveryActive(tCONN_ID conn_id) = 0;
   virtual ~BtaGattInterface() = default;
 };
 
@@ -174,6 +175,7 @@ public:
   MOCK_METHOD((void), InitGattPmCallbacks, (), (override));
   MOCK_METHOD((void), LinkCacheForBondedDevice, (const RawAddress& bd_addr), (override));
   MOCK_METHOD((void), ClientDump, (int fd), (override));
+  MOCK_METHOD((bool), IsDiscoveryActive, (tCONN_ID conn_id), (override));
   // clang-format on
 };
 

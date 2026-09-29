@@ -315,7 +315,8 @@ bool IsCodecUsingLtvFormat(const types::LeAudioCodecId& codec_id) {
   if (codec_id == types::LeAudioCodecIdLc3 ||
       codec_id == types::LeAudioCodecIdAptxLe ||
       codec_id == types::LeAudioCodecIdAptxLeX ||
-      codec_id == types::LeAudioCodecIdAptxPlus) {
+      codec_id == types::LeAudioCodecIdAptxPlus ||
+      codec_id == types::LeAudioCodecIdAptxUltra) {
     return true;
   }
   return false;

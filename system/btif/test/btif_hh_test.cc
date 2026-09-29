@@ -20,7 +20,9 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <future>
+#include <thread>
 #include <vector>
 
 #include "stack/l2cap/internal/l2c_api.h"
@@ -88,6 +90,12 @@ const tBT_TRANSPORT kDeviceTransport = BT_TRANSPORT_AUTO;
 const AclLinkSpec kDeviceConnecting = {.addrt.type = kDeviceAddrType,
                                        .addrt.bda = kDeviceAddressConnecting,
                                        .transport = kDeviceTransport};
+
+// CR 4611672 repro fixture — HOGP (LE HID over GATT) device
+const RawAddress kHogpDeviceAddress("aa:bb:cc:dd:1e:2f");
+const AclLinkSpec kHogpDeviceLinkSpec = {.addrt.type = BLE_ADDR_PUBLIC,
+                                         .addrt.bda = kHogpDeviceAddress,
+                                         .transport = BT_TRANSPORT_LE};
 // Callback parameters grouped into a structure
 struct get_report_cb_t {
   RawAddress raw_address;
@@ -307,4 +315,132 @@ TEST_F(BtifHHVirtualUnplugTest, test_btif_hh_virtual_unplug_device_not_open) {
   res = future.get();
   ASSERT_STREQ(kDeviceAddressConnecting.ToString().c_str(), res.raw_address.ToString().c_str());
   ASSERT_EQ(BTHH_CONN_STATE_DISCONNECTED, res.state);
+}
+
+// Repro fixture for CR 4611672 — [vivo][Android 17] DUT unable to reconnect to a Razer
+// BLE mouse (HOGP / HID over GATT). Root cause: hh_open_handler() unconditionally and
+// synchronously re-issues BTA_HhOpen() on every failed LE HOGP open completion
+// (BTHH_ERR), with no backoff/dedup guard, racing connection_manager bookkeeping and
+// producing an unbounded host-side retry loop (~900 iterations in ~150ms observed in the
+// field; btsnoop confirmed zero HCI traffic to the controller during the loop).
+class BtifHhHogpReconnectStormTest : public BtifHhAdapterReady {
+protected:
+  void SetUp() override {
+    BtifHhAdapterReady::SetUp();
+    bthh_callbacks.connection_state_cb =
+            [](RawAddress bd_addr, tBLE_ADDR_TYPE /* addr_type */, tBT_TRANSPORT /* transport */,
+               bthh_connection_state_t state, bthh_status_t /* hh_status */) {
+              connection_state_cb_t connection_state = {
+                      .raw_address = bd_addr,
+                      .state = state,
+              };
+              g_bthh_connection_state_promise.set_value(connection_state);
+            };
+
+    // Seed a bonded HOGP device with reconnection enabled, matching the Razer mouse in
+    // CR 4611672 — this is what makes hh_open_handler() eligible to resume the background
+    // connection on every failed open completion for this device. This call synchronously
+    // invokes BTHH_STATE_UPDATE (BTHH_CONN_STATE_ACCEPTING), so arm the promise first.
+    g_bthh_connection_state_promise = std::promise<connection_state_cb_t>();
+    auto future = g_bthh_connection_state_promise.get_future();
+
+    tBTA_HH_DEV_DSCP_INFO dscp_info = {};
+    btif_hh_load_bonded_dev(kHogpDeviceLinkSpec, /* attr_mask */ 0, /* sub_class */ 0,
+                            /* app_id */ 0, dscp_info, /* reconnect_allowed */ true);
+
+    ASSERT_EQ(std::future_status::ready, future.wait_for(2s));
+    auto res = future.get();
+    ASSERT_EQ(BTHH_CONN_STATE_ACCEPTING, res.state);
+
+    // Discard any BTA_HhOpen() call issued by the load above so the test below measures
+    // only the retry storm triggered by the failure burst.
+    reset_mock_function_count_map();
+  }
+
+  void TearDown() override {
+    bthh_callbacks.connection_state_cb =
+            [](RawAddress /* bd_addr */, tBLE_ADDR_TYPE /* addr_type */,
+               tBT_TRANSPORT /* transport */, bthh_connection_state_t /* state */,
+               bthh_status_t /* hh_status */) {};
+    BtifHhAdapterReady::TearDown();
+  }
+};
+
+TEST_F(BtifHhHogpReconnectStormTest, cr_4611672_hogp_open_failure_does_not_retry_unbounded) {
+  // Simulate a burst of consecutive failed LE HOGP open completions for the same device —
+  // this is exactly what the field logs showed: bta_gattc_conn_cback() returning
+  // GATT_ERROR, flowing through BTA_HH_SDP_CMPL_EVT/BTHH_ERR, into hh_open_handler().
+  // Each iteration below is one full failure-completion round trip; production shows
+  // hundreds of these firing back-to-back with zero delay.
+  constexpr int kFailureBurstSize = 20;
+
+  tBTA_HH data = {
+          .conn =
+                  {
+                          .link_spec = kHogpDeviceLinkSpec,
+                          .status = BTHH_ERR,
+                          .handle = BTA_HH_INVALID_HANDLE,
+                  },
+  };
+
+  for (int i = 0; i < kFailureBurstSize; i++) {
+    g_bthh_connection_state_promise = std::promise<connection_state_cb_t>();
+    auto future = g_bthh_connection_state_promise.get_future();
+
+    bluetooth::legacy::testing::bte_hh_evt(BTA_HH_OPEN_EVT, &data);
+
+    ASSERT_EQ(std::future_status::ready, future.wait_for(2s))
+            << "hh_open_handler did not complete failure iteration " << i;
+    auto res = future.get();
+    ASSERT_STREQ(kHogpDeviceAddress.ToString().c_str(), res.raw_address.ToString().c_str());
+    ASSERT_EQ(BTHH_CONN_STATE_DISCONNECTED, res.state);
+  }
+
+  // Pre-fix: hh_open_handler() re-issued BTA_HhOpen() unconditionally on every failed
+  // completion -- call count would equal kFailureBurstSize, reproducing CR 4611672.
+  // Post-fix: the alarm-based guard schedules the timer on the first failure and
+  // suppresses all subsequent retries from within the synchronous callback.  Because
+  // the mloop timer does NOT fire during this synchronous test loop (no real mloop
+  // thread is pumped), zero BTA_HhOpen() calls should be observed here; the single
+  // deferred retry will fire later when the alarm fires on the main loop.
+  int open_calls = get_func_call_count("BTA_HhOpen");
+  EXPECT_EQ(0, open_calls)
+          << "BTA_HhOpen() was called " << open_calls << " times synchronously for "
+          << kFailureBurstSize << " consecutive failed HOGP open completions -- "
+          << "hh_open_handler() is retrying without the alarm-based dedup guard "
+          << "(CR 4611672 repro).";
+}
+
+// btif_hh_acl_disconnected() has its own, independent unconditional-retry path
+// (distinct from hh_open_handler()'s BTHH_ERR path above): every LE ACL disconnect
+// for a bonded, reconnect_allowed device unconditionally and synchronously called
+// BTA_HhOpen() to "Rearm HoGP reconnection", with no dedup against a retry already
+// in flight. A tight sequence of ACL disconnects (e.g. a flaky link repeatedly
+// connecting and immediately dropping) reproduces the identical unbounded
+// host-side retry-storm mechanism as CR 4611672, just triggered from the
+// disconnect path instead of the open-failure path.
+class BtifHhHogpAclDisconnectStormTest : public BtifHhHogpReconnectStormTest {};
+
+TEST_F(BtifHhHogpAclDisconnectStormTest, cr_4611672_acl_disconnect_does_not_retry_unbounded) {
+  // Simulate a burst of consecutive LE ACL disconnects for the same bonded device --
+  // each call is what btm_acl.cc invokes on link loss for a device with an active
+  // background HOGP reconnect policy.
+  constexpr int kDisconnectBurstSize = 20;
+
+  for (int i = 0; i < kDisconnectBurstSize; i++) {
+    btif_hh_acl_disconnected(kHogpDeviceAddress, BT_TRANSPORT_LE);
+  }
+
+  // Pre-fix: btif_hh_acl_disconnected() re-issued BTA_HhOpen() unconditionally on every
+  // disconnect -- call count would equal kDisconnectBurstSize.
+  // Post-fix: the same alarm-based dedup guard hh_open_handler() uses schedules the
+  // timer on the first disconnect and suppresses all subsequent retries from within
+  // this synchronous loop. Because the mloop timer does NOT fire during this
+  // synchronous test loop, zero BTA_HhOpen() calls should be observed here.
+  int open_calls = get_func_call_count("BTA_HhOpen");
+  EXPECT_EQ(0, open_calls)
+          << "BTA_HhOpen() was called " << open_calls << " times synchronously for "
+          << kDisconnectBurstSize << " consecutive LE ACL disconnects -- "
+          << "btif_hh_acl_disconnected() is rearming without the alarm-based dedup "
+          << "guard (CR 4611672 repro, ACL-disconnect path).";
 }

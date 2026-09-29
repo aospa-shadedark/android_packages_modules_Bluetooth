@@ -39,6 +39,7 @@
 #include "stack/include/acl_api.h"
 #include "stack/include/bt_hdr.h"
 #include "stack/include/bt_types.h"
+#include "stack/include/btm_ble_api.h"
 #include "stack/include/btm_client_interface.h"
 #include "stack/include/gatt_api.h"
 #include "stack/include/hci_error_code.h"
@@ -411,6 +412,20 @@ void gatt_notify_phy_updated(tHCI_STATUS status, uint16_t handle, uint8_t tx_phy
   tGATT_TCB* p_tcb = gatt_find_tcb_by_addr(p_device->ble.pseudo_addr, BT_TRANSPORT_LE);
   if (!p_tcb) {
     return;
+  }
+
+
+  constexpr uint8_t kHdtPhyValue = 0x05;
+  if (status == HCI_SUCCESS && tx_phy == kHdtPhyValue && rx_phy == kHdtPhyValue) {
+    tHCI_ROLE local_role;
+    tBTM_STATUS role_status = get_btm_client_interface().link_policy.BTM_GetRole(
+            p_device->ble.pseudo_addr, BT_TRANSPORT_LE, &local_role);
+    if (role_status == tBTM_STATUS::BTM_SUCCESS && local_role == tHCI_ROLE::HCI_ROLE_CENTRAL) {
+      log::info(
+              "HDT PHY update complete, central device setting BLE data length to 0x1fef for {}",
+              p_device->ble.pseudo_addr);
+      BTM_SetBleDataLength(p_device->ble.pseudo_addr, 0x1fef, false);
+    }
   }
 
   // TODO: Clean up this status conversion.

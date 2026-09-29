@@ -61,7 +61,7 @@ public class ReflectorFragment extends Fragment {
         mBleConnectionViewModel
                 .getLogText()
                 .observe(
-                        getActivity(),
+                        getViewLifecycleOwner(),
                         log -> {
                             mLogText.setText(log);
                         });

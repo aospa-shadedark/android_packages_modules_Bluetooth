@@ -79,6 +79,7 @@ struct btm_get_local_div btm_get_local_div;
 struct btm_proc_smp_cback btm_proc_smp_cback;
 struct btm_sec_save_le_key btm_sec_save_le_key;
 struct BTM_BleSetPhy BTM_BleSetPhy;
+struct BTM_SetBleDataLength BTM_SetBleDataLength;
 
 }  // namespace stack_btm_ble
 }  // namespace mock
@@ -108,6 +109,7 @@ tBTM_STATUS btm_ble_start_encrypt::return_value = tBTM_STATUS::BTM_SUCCESS;
 tBTM_STATUS btm_ble_start_sec_check::return_value = tBTM_STATUS::BTM_SUCCESS;
 bool btm_get_local_div::return_value = false;
 tBTM_STATUS btm_proc_smp_cback::return_value = tBTM_STATUS::BTM_SUCCESS;
+tBTM_STATUS BTM_SetBleDataLength::return_value = tBTM_STATUS::BTM_SUCCESS;
 
 }  // namespace stack_btm_ble
 }  // namespace mock
@@ -274,6 +276,12 @@ void BTM_BleSetPhy(const RawAddress& bd_addr, uint8_t tx_phys, uint8_t rx_phys,
   inc_func_call_count(__func__);
   test::mock::stack_btm_ble::BTM_BleSetPhy(bd_addr, tx_phys, rx_phys, phy_options);
  }
+tBTM_STATUS BTM_SetBleDataLength(const RawAddress& bd_addr, uint16_t tx_pdu_length,
+                                 bool is_privileged_client) {
+  inc_func_call_count(__func__);
+  return test::mock::stack_btm_ble::BTM_SetBleDataLength(bd_addr, tx_pdu_length,
+                                                         is_privileged_client);
+}
 // Mocked functions complete
 // END mockcify generation
 

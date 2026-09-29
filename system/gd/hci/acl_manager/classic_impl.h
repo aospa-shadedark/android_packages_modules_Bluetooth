@@ -271,6 +271,13 @@ public:
       auto reason = RejectConnectionReason::UNACCEPTABLE_BD_ADDR;
       this->reject_connection(RejectConnectionRequestBuilder::Create(address, reason));
     } else {
+      // If we are simultaneously paging this same peer (an outgoing Create Connection is
+      // outstanding/queued for this address), accepting now would collide with our own page
+      // at the controller and end in LMP_RESPONSE_TIMEOUT. Cancel the outstanding outgoing
+      // first so the incoming can be accepted cleanly. This is a no-op when there is no such
+      // outgoing.
+      acl_scheduler_.CancelOutgoingAclConnectionIfPending(
+              address, handler_->BindOnceOn(this, &classic_impl::actually_cancel_connect, address));
       this->accept_connection(address);
     }
   }

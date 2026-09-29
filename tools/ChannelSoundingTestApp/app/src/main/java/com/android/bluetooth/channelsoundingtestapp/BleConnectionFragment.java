@@ -79,11 +79,11 @@ public class BleConnectionFragment extends Fragment {
         mSpinnerBtAddress.setAdapter(mBondedBtDevicesArrayAdapter);
 
         mViewModel =
-                new ViewModelProvider(requireParentFragment() instanceof InitiatorFragment ? requireActivity() : requireParentFragment()).get(BleConnectionViewModel.class);
+                new ViewModelProvider(requireActivity()).get(BleConnectionViewModel.class);
         mViewModel
                 .getGattState()
                 .observe(
-                        getActivity(),
+                        getViewLifecycleOwner(),
                         gattSate -> {
                             switch (gattSate) {
                                 case CONNECTED_DIRECT:
@@ -109,7 +109,7 @@ public class BleConnectionFragment extends Fragment {
         mViewModel
                 .getBondedBtDeviceAddresses()
                 .observe(
-                        getActivity(),
+                        getViewLifecycleOwner(),
                         deviceList -> {
                             mBondedBtDevicesArrayAdapter.clear();
                             mBondedBtDevicesArrayAdapter.addAll(deviceList);
@@ -144,7 +144,7 @@ public class BleConnectionFragment extends Fragment {
         mViewModel
                 .getIsAdvertising()
                 .observe(
-                        getActivity(),
+                        getViewLifecycleOwner(),
                         isAdvertising -> {
                             if (isAdvertising) {
                                 mBtnAdvertising.setText("Stop Advertising");
@@ -164,7 +164,7 @@ public class BleConnectionFragment extends Fragment {
         mViewModel
                 .getShowTxPower()
                 .observe(
-                        getActivity(),
+                        getViewLifecycleOwner(),
                         showTxPower -> {
                             View txPowerLayout = view.findViewById(R.id.layout_tx_power);
                             if (txPowerLayout != null) {

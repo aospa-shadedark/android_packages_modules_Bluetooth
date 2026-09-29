@@ -112,6 +112,8 @@ enum class tSECURITY_STATE : uint8_t {
   /* delay to check for encryption to work around */
   /* controller problems */
   DELAY_FOR_ENC = 7,
+  /* BR/EDR authentication armed on a delay timer but not yet started */
+  WAIT_AUTH_DELAY = 8,
 };
 
 static inline std::string security_state_text(const tSECURITY_STATE& state) {
@@ -124,6 +126,7 @@ static inline std::string security_state_text(const tSECURITY_STATE& state) {
     CASE_RETURN_STRING(tSECURITY_STATE::SWITCHING_ROLE);
     CASE_RETURN_STRING(tSECURITY_STATE::DISCONNECTING);
     CASE_RETURN_STRING(tSECURITY_STATE::DELAY_FOR_ENC);
+    CASE_RETURN_STRING(tSECURITY_STATE::WAIT_AUTH_DELAY);
     default:
       RETURN_UNKNOWN_TYPE_STRING(tSECURITY_STATE, state);
   }

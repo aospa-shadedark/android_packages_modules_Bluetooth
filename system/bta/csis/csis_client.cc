@@ -288,6 +288,18 @@ public:
 
     if (device->GetExpectedGroupIdMember() != bluetooth::groups::kGroupUnknown) {
       log::info("Bonding failed for {}, remove device", addr);
+      /* If a SIRK GATT read is in flight, SMP is still waiting for a reply.
+       * Clear the flag and send false now before erasing the device.  The
+       * BindOnce read callback (bound to a weak_ptr of CsisClientImpl, not
+       * the device) still fires later with device==nullptr and replies false
+       * again as a catch-all; the duplicate is dropped by
+       * SMP_SirkConfirmDeviceReply's cb_evt / bd_addr guards.
+       */
+      if (device->GetPairingSirkReadFlag()) {
+        device->SetPairingSirkReadFlag(false);
+        log::warn("BondingFailed during in-flight SIRK read for {}, sending reject to SMP", addr);
+        BTA_DmSirkConfirmDeviceReply(addr, false);
+      }
       RemoveCsisDevice(device);
     } else {
       log::warn("{} bonded already", addr);
@@ -372,6 +384,20 @@ public:
     if (device == nullptr) {
       log::warn("{} not found", addr);
       return;
+    }
+
+    /* If a SIRK verification GATT read is in-flight when the device is
+     * removed (e.g. user-initiated forget/unpair during pairing), SMP is
+     * still waiting for a reply.  Send the failure reply now so SMP fails
+     * fast rather than timing out via SMP_WAIT_FOR_RSP_TIMEOUT_EVT.
+     * On the normal success path SetPairingSirkReadFlag(false) is called
+     * before RemoveDevice, so this guard only fires on the unpair-while-
+     * pairing race and on error paths that call RemoveDevice before reply.
+     */
+    if (device->GetPairingSirkReadFlag()) {
+      device->SetPairingSirkReadFlag(false);
+      log::warn("RemoveDevice({}) while SIRK read in progress — sending SMP failure reply", addr);
+      BTA_DmSirkConfirmDeviceReply(addr, false);
     }
 
     Disconnect(addr);
@@ -1839,10 +1865,15 @@ private:
        * group is already completed. Those devices are cached ivalid devices
        * kept on list to not trigger "new device" found every time advertising
        * event is received.
+       *
+       * Skip a device whose SIRK read is still in flight (pairing in
+       * progress): erasing it here would leave SMP waiting for a reply.
+       * Mirrors the GetPairingSirkReadFlag() guard in the candidate sweep
+       * of RemoveCsisDevice().
        */
       while (iter != devices_.cend()) {
         if (((*iter)->GetExpectedGroupIdMember() == csis_group->GetGroupId()) &&
-            !(*iter)->IsConnected()) {
+            !(*iter)->IsConnected() && !(*iter)->GetPairingSirkReadFlag()) {
           iter = devices_.erase(iter);
         } else {
           ++iter;
@@ -1875,6 +1906,13 @@ private:
       BtaGattQueue::Clean(device->conn_id);
       device->conn_id = GATT_INVALID_CONN_ID;
     }
+
+    /* Any deferred RemoveDevice intent is reconciled by the caller
+     * (OnGattServiceDiscoveryDoneEvent on the normal path, OnGattDisconnected
+     * on a real link loss). Clear it here as a belt-and-suspenders so no
+     * disconnect-cleanup path can leave the flag stuck true on a device whose
+     * connection is gone. */
+    device->remove_device_pending_discovery = false;
   }
 
   bool OnCsisServiceFound(std::shared_ptr<CsisDevice> device, const gatt::Service* service,
@@ -2145,6 +2183,10 @@ private:
 
     log::debug("device={}", device->addr);
 
+    /* Captured before DoDisconnectCleanUp() clears it — see reconciliation
+     * below. */
+    bool remove_pending = device->remove_device_pending_discovery;
+
     callbacks_->OnConnectionState(evt.remote_bda, ConnectionState::DISCONNECTED);
 
     // Unlock others only if device was locked by us but has disconnected
@@ -2163,6 +2205,30 @@ private:
     }
 
     DoDisconnectCleanUp(device);
+
+    /* A RemoveDevice() was deferred pending this device's own GATT service
+     * discovery (see SirkValueReadCompleteDuringPairing), but the link died
+     * before BTA_GATTC_SRVC_DISC_DONE_EVT could fire — a real physical
+     * disconnect tears the CLCB down via BTA_GATTC_INT_DISCONN_EVT ->
+     * bta_gattc_close and delivers BTA_GATTC_CLOSE_EVT here, never
+     * SRVC_DISC_DONE_EVT. OnGattServiceDiscoveryDoneEvent (the only other
+     * consumer of the pending flag) will therefore never run for this
+     * torn-down connection, so reconcile the deferred removal now.
+     *
+     * Do the record teardown directly rather than calling RemoveDevice():
+     * the connection is already gone (DoDisconnectCleanUp invalidated
+     * conn_id and we already emitted OnConnectionState(DISCONNECTED) above),
+     * so RemoveDevice()->Disconnect() would only re-run cleanup on a dead
+     * link and emit a second, redundant DISCONNECTED callback. RemoveDevice's
+     * only remaining work on this path is the two erasures below (its SIRK
+     * reply-false guard is already a no-op here — the flag was cleared before
+     * the SIRK reply went out). */
+    if (remove_pending) {
+      if (device->GetNumberOfCsisInstances() == 0) {
+        RemoveCsisDevice(device);
+      }
+      dev_groups_->RemoveDevice(evt.remote_bda);
+    }
   }
 
   void OnGattServiceSearchComplete(const tBTA_GATTC_SEARCH_CMPL& evt) {
@@ -2323,6 +2389,20 @@ private:
 
     log::debug("address={}", address);
 
+    /* RemoveDevice() was requested (post-SIRK-verification) while this
+     * device's own discovery was still active; it's genuinely finished now
+     * (bta_gattc_disc_cmpl always clears disc_active before firing this
+     * event), so it's safe to close the connection without forcing
+     * bta_gattc's srcb-wide discovery-abort broadcast onto any other client
+     * still relying on this device's shared connection. See
+     * SirkValueReadCompleteDuringPairing().
+     */
+    if (device->remove_device_pending_discovery) {
+      device->remove_device_pending_discovery = false;
+      RemoveDevice(address);
+      return;
+    }
+
     if (!device->is_gatt_service_valid) {
       BTA_GATTC_ServiceSearchRequest(device->conn_id);
     }
@@ -2391,7 +2471,17 @@ private:
 
     auto device = FindDeviceByAddress(address);
     if (device == nullptr) {
-      log::error("Unknown device {}", address);
+      /* Catch-all: some removal paths (OnCsisSirkValueUpdate candidate sweep,
+       * OnGroupMemberRemovedCb) erase an in-flight candidate without replying.
+       * The read callback is bound to a weak_ptr of CsisClientImpl, not the
+       * device, so erasing the device does not cancel the read — it still
+       * fires here with device==nullptr.  Reply false so SMP never waits out
+       * SMP_WAIT_FOR_RSP_TIMEOUT (~30s).  Safe against double-reply:
+       * SMP_SirkConfirmDeviceReply ignores it unless cb_evt is still
+       * SMP_SIRK_VERIFICATION_REQ_EVT and bd_addr == pairing_bda
+       * (smp_api.cc:539/544, btm_ble_sec.cc:1759).
+       */
+      log::warn("SIRK callback for already-removed device {}, replying false to SMP", address);
       BTA_DmSirkConfirmDeviceReply(address, false);
       return;
     }
@@ -2446,8 +2536,26 @@ private:
     BTA_DmSirkConfirmDeviceReply(address, true);
 
     /* It was temporary device and we can remove it. When upper layer
-     * decides to connect CSIS it will be added then
+     * decides to connect CSIS it will be added then.
+     *
+     * Don't close the connection while this device's own GATT service
+     * discovery is still in flight (e.g. a brand-new device whose cached DB
+     * hash didn't match, so bta_gattc auto-started a full discovery on
+     * connect). Closing now would force bta_gattc's srcb-wide
+     * discovery-failure broadcast (bta_gattc_reset_discover_st), which also
+     * aborts any *other* client's independent, unrelated discovery sharing
+     * this device's physical connection — observed to kill DM's freshly
+     * started post-bond service discovery on the very same device, causing
+     * it to disconnect before the CSIP set member ever completes profile
+     * setup. Defer the removal to OnGattServiceDiscoveryDoneEvent(), which
+     * fires once this device's own discovery genuinely finishes.
      */
+    if (device->IsConnected() && BTA_GATTC_IsDiscoveryActive(device->conn_id)) {
+      log::info("Deferring RemoveDevice({}) until own discovery completes", address);
+      device->remove_device_pending_discovery = true;
+      return;
+    }
+
     RemoveDevice(address);
   }
 
@@ -2470,6 +2578,19 @@ private:
               "instances={}) but it is not scheduled to join any group.",
               address, device->conn_id, device->GetNumberOfCsisInstances());
       BTA_DmSirkConfirmDeviceReply(address, true);
+      return;
+    }
+
+    if (device->GetPairingSirkReadFlag()) {
+      /* Defensive guard against stacking a second in-flight SIRK GATT read.
+       * SMP_SIRK_VERIFICATION_REQ_EVT fires once per serialized pairing
+       * session (smp_sirk_verify() in BOND_PENDING), so in practice this
+       * branch is inert — but if a second VerifySetMember() ever arrived
+       * while a read is outstanding, issuing another gatt_cl_read_sirk_req
+       * would enqueue a duplicate callback. The single in-flight read will
+       * deliver the one reply SMP is waiting for.
+       */
+      log::warn("Device {} SIRK read already in progress, skipping duplicate verify", address);
       return;
     }
 

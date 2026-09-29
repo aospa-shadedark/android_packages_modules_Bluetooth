@@ -49,6 +49,7 @@ struct get_a2dp_configuration get_a2dp_configuration;
 struct init init;
 struct init_decoder init_decoder;
 struct is_hal_enabled is_hal_enabled;
+struct is_aidl_enabled is_aidl_enabled;
 struct is_hal_offloading is_hal_offloading;
 struct is_offload_session_unknown is_offload_session_unknown;
 struct is_opus_supported is_opus_supported;
@@ -78,6 +79,7 @@ std::optional<a2dp_configuration> get_a2dp_configuration::return_value = std::nu
 bool init::return_value = false;
 bool init_decoder::return_value = false;
 bool is_hal_enabled::return_value = false;
+bool is_aidl_enabled::return_value = false;
 bool is_hal_offloading::return_value = false;
 bool is_offload_session_unknown::return_value = false;
 bool is_opus_supported::return_value = false;
@@ -145,6 +147,10 @@ bool init_decoder(bluetooth::audio::a2dp::StreamCallbacks const* stream_callback
 bool is_hal_enabled() {
   inc_func_call_count(__func__);
   return test::mock::audio_hal_interface_a2dp_encoding::is_hal_enabled();
+}
+bool is_aidl_enabled() {
+  inc_func_call_count(__func__);
+  return test::mock::audio_hal_interface_a2dp_encoding::is_aidl_enabled();
 }
 bool is_hal_offloading() {
   inc_func_call_count(__func__);

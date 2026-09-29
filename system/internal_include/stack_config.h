@@ -63,6 +63,7 @@ typedef struct {
   bool (*get_pts_enable_authorization_encr_data_key)(void);
   bool (*get_pts_gatt_disable_cl_caching_bit_reset)(void);
   bool (*get_pts_vap_notify_characteristics)(void);
+  bool (*get_pts_smp_bredr_pairing_preserve_le_keys)(void);  
 } stack_config_t;
 
 extern const stack_config_t* stack_config_get_interface(void);

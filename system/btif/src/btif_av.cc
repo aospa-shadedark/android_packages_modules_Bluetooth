@@ -637,7 +637,11 @@ public:
     }
 
     if (!peer_address.IsEmpty() && active_peer_ == peer_address && aptX_config_change) {
-      btif_a2dp_source_end_session(active_peer_);
+      if (bluetooth::audio::a2dp::is_aidl_enabled()) {
+        log::info("ignore ending session.");
+      } else {
+        btif_a2dp_source_end_session(active_peer_);
+      }
     }
 
     btif_a2dp_source_encoder_user_config_update_req(peer_address, codec_preferences,
@@ -2555,16 +2559,34 @@ bool BtifAvStateMachine::StateOpened::ProcessEvent(uint32_t event, void* p_data)
       }
 
       if (peer_.IsActivePeer()) {
-        log::info("Peer {} : Reconfig done - calling startSession() to audio HAL",
+        if (bluetooth::audio::a2dp::is_aidl_enabled()) {
+          log::info(
+                  "Peer {} : Reconfig done - Ignore calling startSession(), just update codec to "
+                  "audio HAL",
                   peer_.PeerAddress());
-        std::promise<bool> peer_ready_promise;
+          std::promise<bool> peer_ready_promise;
+          btif_a2dp_source_setup_codec(peer_.PeerAddress(), peer_ready_promise);
 
-        // The stream may not be restarted without an explicit request from the
-        // Bluetooth Audio HAL. Any start request that was pending before the
-        // reconfiguration is invalidated when the session is ended.
-        peer_.ClearFlags(BtifAvPeer::kFlagPendingStart);
+          // Report the new codec configuration to the upper layers, since
+          // the audio session was not restarted and BtaAvCo did not
+          // re-run ProcessSourceGetConfig() -> ReportSourceCodecState()
+          // on this reconfig path.  Without this notification, A2dpService
+          // and MM-Audio would still hold the previous codec and its
+          // encoder parameters, causing an encoder/decoder mismatch on the
+          // freshly negotiated stream.
+          bta_av_co_report_codec_config_changed(peer_.PeerAddress());
+        } else {
+          log::info("Peer {} : Reconfig done - calling startSession() to audio HAL",
+                    peer_.PeerAddress());
+          std::promise<bool> peer_ready_promise;
 
-        btif_a2dp_source_start_session(peer_.PeerAddress(), std::move(peer_ready_promise));
+          // The stream may not be restarted without an explicit request from the
+          // Bluetooth Audio HAL. Any start request that was pending before the
+          // reconfiguration is invalidated when the session is ended.
+          peer_.ClearFlags(BtifAvPeer::kFlagPendingStart);
+
+          btif_a2dp_source_start_session(peer_.PeerAddress(), std::move(peer_ready_promise));
+        }
       }
       if (peer_.CheckFlags(BtifAvPeer::kFlagPendingStart)) {
         log::info("Peer {} : Reconfig done - calling BTA_AvStart(0x{:x})", peer_.PeerAddress(),

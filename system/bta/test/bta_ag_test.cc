@@ -415,6 +415,29 @@ TEST_F_WITH_FLAGS(BtaAgScoTest, ag_sco_shutdown,
   ASSERT_EQ(bta_ag_cb.sco.p_curr_scb, nullptr);
 }
 
+TEST_F_WITH_FLAGS(BtaAgScoTest, ag_sco_close_during_codec_negotiation_releases_sco_use,
+                  REQUIRES_FLAGS_ENABLED(ACONFIG_FLAG(TEST_BT, call_end_codec_negotiation))) {
+  tBTA_AG_SCB* p_scb = &bta_ag_cb.scb[0];
+  p_scb->app_id = 0;
+  p_scb->peer_addr = addr;
+  p_scb->codec_negotiation_timer = alarm_new("bta_ag.scb_codec_negotiation_timer");
+  bta_ag_cb.sco.state = BTA_AG_SCO_CODEC_ST;
+  bta_ag_cb.sco.p_curr_scb = p_scb;
+
+  // bta_sys_sco_unuse() reads the live SCO count as its very first step, so
+  // asserting this fired is what proves the earlier bta_sys_sco_use() (e.g.
+  // from bta_ag_hfp_result() handling BTA_AG_IN_CALL_RES) gets balanced when
+  // the call ends before the SCO HCI connection was ever established.
+  EXPECT_CALL(btm_client_interface_, BTM_GetNumScoLinks()).WillOnce(Return(0));
+
+  bta_ag_sco_close(p_scb, tBTA_AG_DATA::kEmpty);
+
+  ASSERT_EQ(bta_ag_cb.sco.state, BTA_AG_SCO_LISTEN_ST);
+  ASSERT_EQ(bta_ag_cb.sco.p_curr_scb, nullptr);
+
+  alarm_free(p_scb->codec_negotiation_timer);
+}
+
 class BtaAgCmdAtHfpCbackTest : public BtaAgTest {
 protected:
   void SetUp() override {

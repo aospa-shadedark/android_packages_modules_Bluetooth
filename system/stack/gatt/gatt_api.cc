@@ -1443,8 +1443,34 @@ void GATTC_SetDefaultMtu(const RawAddress& remote_bda) {
     auto mtu_pref = p_reg->auto_mtu_enabled.find(remote_bda);
     if (mtu_pref != p_reg->auto_mtu_enabled.cend() && mtu_pref->second) {
       tCONN_ID conn_id = gatt_create_conn_id(p_tcb->tcb_idx, p_reg->gatt_if);
-      tGATT_STATUS status = GATTC_ConfigureMTU(conn_id, gatt_get_local_mtu());
-      log::verbose("set default MTU for the app: {}, status: {}", p_reg->gatt_if, status);
+
+      uint16_t current_mtu = 0;
+      auto result = GATTC_TryMtuRequest(remote_bda, BT_TRANSPORT_LE, conn_id, &current_mtu);
+      switch (result) {
+        case MTU_EXCHANGE_DEVICE_DISCONNECTED:
+          if (p_reg->app_cb.p_cmpl_cb) {
+            (*p_reg->app_cb.p_cmpl_cb)(conn_id, GATTC_OPTYPE_CONFIG, GATT_NO_RESOURCES, NULL);
+          }
+          break;
+        case MTU_EXCHANGE_NOT_ALLOWED:
+          if (p_reg->app_cb.p_cmpl_cb) {
+            (*p_reg->app_cb.p_cmpl_cb)(conn_id, GATTC_OPTYPE_CONFIG, GATT_ERR_UNLIKELY, NULL);
+          }
+          break;
+        case MTU_EXCHANGE_ALREADY_DONE:
+          GATTC_UpdateUserAttMtuIfNeeded(remote_bda, BT_TRANSPORT_LE, gatt_get_local_mtu());
+          if (p_reg->app_cb.p_cmpl_cb) {
+            tGATT_CL_COMPLETE complete{.mtu = current_mtu};
+            (*p_reg->app_cb.p_cmpl_cb)(conn_id, GATTC_OPTYPE_CONFIG, GATT_SUCCESS, &complete);
+          }
+          break;
+        case MTU_EXCHANGE_IN_PROGRESS:
+          break;
+        case MTU_EXCHANGE_NOT_DONE_YET:
+          tGATT_STATUS status = GATTC_ConfigureMTU(conn_id, gatt_get_local_mtu());
+          log::verbose("set default MTU for the app: {}, status: {}", p_reg->gatt_if, status);
+          break;
+      }
       break;
     }
   }

@@ -407,4 +407,10 @@ void btsnd_hcic_refresh_enc_key_v2(uint16_t conn_handle, uint8_t hdt_mic_length)
 void btsnd_hcic_ble_set_data_length_v2(uint16_t conn_handle, uint16_t tx_octets, uint16_t tx_time, uint8_t phys);
 
 void btsnd_hcic_ble_read_enc_key_sched_debug_mode();
+
+void btsnd_hcic_set_hdt_plus_features_enable(uint16_t conn_handle,
+                                              uint64_t hdt_plus_features,
+                                              uint8_t br_c_to_p, uint8_t br_p_to_c,
+                                              uint16_t rates_c_to_p,
+                                              uint16_t rates_p_to_c);
 #endif

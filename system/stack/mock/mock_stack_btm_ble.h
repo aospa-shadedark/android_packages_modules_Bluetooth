@@ -503,6 +503,22 @@ struct BTM_BleSetPhy {
 };
 extern struct BTM_BleSetPhy BTM_BleSetPhy;
 
+// Name: BTM_SetBleDataLength
+// Params: const RawAddress& bd_addr, uint16_t tx_pdu_length, bool is_privileged_client
+// Return: tBTM_STATUS
+struct BTM_SetBleDataLength {
+  static tBTM_STATUS return_value;
+  std::function<tBTM_STATUS(const RawAddress& bd_addr, uint16_t tx_pdu_length,
+                            bool is_privileged_client)>
+          body{[](const RawAddress& /* bd_addr */, uint16_t /* tx_pdu_length */,
+                  bool /* is_privileged_client */) { return return_value; }};
+  tBTM_STATUS operator()(const RawAddress& bd_addr, uint16_t tx_pdu_length,
+                         bool is_privileged_client) {
+    return body(bd_addr, tx_pdu_length, is_privileged_client);
+  }
+};
+extern struct BTM_SetBleDataLength BTM_SetBleDataLength;
+
 }  // namespace stack_btm_ble
 }  // namespace mock
 }  // namespace test

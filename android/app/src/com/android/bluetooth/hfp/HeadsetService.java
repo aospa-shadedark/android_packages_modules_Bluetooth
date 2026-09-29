@@ -182,7 +182,7 @@ public class HeadsetService extends ConnectableProfile {
             new AudioManagerAudioDeviceCallback();
 
     private final AudioManagerDeviceVolumeListener mAudioManagerDeviceVolumeListener;
-    private static final int AUDIO_CONNECTION_DELAY_DEFAULT = 100;
+    private static final int AUDIO_CONNECTION_DELAY_DEFAULT = 350;
     private boolean mDelayDsDaindicators = false;
 
     @VisibleForTesting boolean mIsAptXSwbEnabled = false;

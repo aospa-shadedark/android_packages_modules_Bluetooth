@@ -547,6 +547,9 @@ static tBTM_STATUS btm_pm_snd_md_req(uint16_t handle, uint8_t pm_id, int link_in
     return tBTM_STATUS::BTM_NO_RESOURCES;
   }
 
+  p_cb->prev_state = p_cb->state;
+  p_cb->state = BTM_PM_ST_PENDING;
+
   return tBTM_STATUS::BTM_CMD_STARTED;
 }
 
@@ -596,8 +599,9 @@ void btm_pm_proc_cmd_status(tHCI_STATUS status) {
   tBTM_PM_STATUS pm_status = BTM_PM_STS_ERROR;
 
   if (status == HCI_SUCCESS) {
-    p_cb->state = BTM_PM_ST_PENDING;
     pm_status = BTM_PM_STS_PENDING;
+  } else {
+    p_cb->state = p_cb->prev_state;  // undo the PENDING
   }
 
   /* notify the caller is appropriate */

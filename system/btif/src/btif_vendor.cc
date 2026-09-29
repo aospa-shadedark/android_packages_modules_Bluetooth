@@ -276,6 +276,16 @@ static void le_set_data_length_v2_wrapper(uint16_t handle, uint16_t tx_pdu_lengt
   log::info("Sent btsnd_hcic_le_set_hdt_default_parameters command from wrapper.");
 }
 
+static void set_hdt_plus_features_enable_wrapper(uint16_t handle,
+                                                  uint64_t hdt_plus_features,
+                                                  uint8_t br_c_to_p, uint8_t br_p_to_c,
+                                                  uint16_t rates_c_to_p,
+                                                  uint16_t rates_p_to_c) {
+  btsnd_hcic_set_hdt_plus_features_enable(handle, hdt_plus_features, br_c_to_p,
+                                          br_p_to_c, rates_c_to_p, rates_p_to_c);
+  log::info("Sent btsnd_hcic_set_hdt_plus_features_enable command from wrapper.");
+}
+
 static const bthci_test_interface_t bthciTestInterface = {
     sizeof(bthciTestInterface),
     ble_start_enc_v2_wrapper,
@@ -286,6 +296,7 @@ static const bthci_test_interface_t bthciTestInterface = {
     le_set_default_phy_wrapper,
     refresh_enc_key_v2_wrapper,
     le_set_data_length_v2_wrapper,
+    set_hdt_plus_features_enable_wrapper,
 };
 
 const bthci_test_interface_t* btif_hci_test_get_interface(void) {

@@ -203,6 +203,12 @@ static void bta_hh_reset_cb(tBTA_HH_DEV_CB* p_cb) {
     (void)get_legacy_stack_sdp_api()->SDP_CancelServiceSearch(p_cb->p_disc_db);
     osi_free_and_reset((void**)&p_cb->p_disc_db);
   }
+
+  // Release LE workaround state (alarm + address sets) before zeroing the CB.
+  if (p_cb->link_spec.transport == BT_TRANSPORT_LE) {
+    bta_hh_le_cleanup_dev(p_cb);
+  }
+
   *p_cb = {};
 }
 

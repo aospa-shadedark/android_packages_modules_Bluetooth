@@ -324,10 +324,10 @@ TEST_F(ClassicAclConnectionWithCallbacksTest, OnDisconnection) {
   for (const auto& error_code : error_code_vector) {
     SetUpConnection();
     connection_management_callbacks_->OnDisconnection(error_code);
+    sync_handler();
     CleanConnection();
   }
 
-  sync_handler();
   ASSERT_TRUE(!callbacks_.on_disconnection_error_code_queue_.empty());
 
   for (const auto& error_code : error_code_vector) {

@@ -117,6 +117,11 @@ typedef struct {
   AclLinkSpec link_spec;
   tBTA_HH_ATTR_MASK attr_mask;
   bool reconnect_allowed;  // Connection policy
+  alarm_t* reconnect_timer;  // Non-null while a delayed LE HOGP background reconnect
+                             // (see hh_open_handler() and btif_hh_acl_disconnected())
+                             // is pending for this device -- guards against re-issuing
+                             // BTA_HhOpen() on every failed open completion or ACL
+                             // disconnect (CR 4611672).
 } btif_hh_added_device_t;
 
 /**

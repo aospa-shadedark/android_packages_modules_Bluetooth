@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <cstring>
 #include <list>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -40,6 +41,8 @@
 #include "bta/include/bta_hh_co.h"
 #include "bta/include/bta_le_audio_api.h"
 #include "bta_api.h"
+#include "btif/include/btif_storage.h"
+#include "stack/include/acl_api.h"
 #include "bta_gatt_api.h"
 #include "bta_hh_api.h"
 #include "device/include/interop.h"
@@ -94,8 +97,36 @@ static void bta_hh_process_cache_rpt(tBTA_HH_DEV_CB* p_cb, tBTA_HH_RPT_CACHE_ENT
                                      uint8_t num_rpt);
 static bool bta_hh_le_iso_data_callback(const RawAddress& addr, uint16_t cis_conn_hdl,
                                         uint8_t* data, uint16_t size, uint32_t timestamp);
+static void bta_hh_le_suspend(tBTA_HH_DEV_CB* p_cb, tBTA_HH_TRANS_CTRL_TYPE ctrl_type);
 
 static const char* bta_hh_le_rpt_name[4] = {"UNKNOWN", "INPUT", "OUTPUT", "FEATURE"};
+
+// INTEROP_HOGP_RECONNECT_ON_FIRST_CONNECTION: reconnect pending / needs reconnect sets.
+static std::set<RawAddress> bta_hh_le_pending_reconnect;
+static std::set<RawAddress> bta_hh_le_needs_reconnect;
+
+void bta_hh_le_cleanup_dev(tBTA_HH_DEV_CB* p_cb) {
+  alarm_free(p_cb->notif_watchdog_timer);
+  p_cb->notif_watchdog_timer = nullptr;
+  bta_hh_le_pending_reconnect.erase(p_cb->link_spec.addrt.bda);
+  bta_hh_le_needs_reconnect.erase(p_cb->link_spec.addrt.bda);
+}
+
+#define BTA_HH_LE_NOTIF_WATCHDOG_TIMEOUT_MS 2500
+
+static void bta_hh_le_notif_watchdog_timeout(void* data) {
+  tBTA_HH_DEV_CB* p_cb = static_cast<tBTA_HH_DEV_CB*>(data);
+  if (!p_cb->in_use || p_cb->conn_id == GATT_INVALID_CONN_ID) {
+    log::warn("notif watchdog fired for {} but connection already gone, ignoring",
+              p_cb->link_spec);
+    return;
+  }
+  log::warn("notif watchdog fired for {}, no notification received; forcing reconnect",
+            p_cb->link_spec);
+  bta_hh_le_pending_reconnect.insert(p_cb->link_spec.addrt.bda);
+  btm_remove_acl(p_cb->link_spec.addrt.bda, BT_TRANSPORT_LE);
+}
+
 static void bta_hh_le_gatt_read_cb(tCONN_ID conn_id, tGATT_STATUS status, uint16_t handle,
                                       uint16_t len, const uint8_t* value, void* data) {
   if (status != GATT_SUCCESS) {
@@ -664,6 +695,16 @@ static void bta_hh_le_open_cmpl(tBTA_HH_DEV_CB* p_cb) {
         BTA_GATTC_ConfigureMTU(p_cb->conn_id, GATT_MAX_MTU_SIZE);
       }
     }
+    if (bta_hh_le_needs_reconnect.erase(p_cb->link_spec.addrt.bda)) {
+      log::info("re-arm: first post-pairing connection for {}, starting notification watchdog",
+                p_cb->link_spec);
+      bta_hh_le_suspend(p_cb, BTA_HH_CTRL_EXIT_SUSPEND);
+      if (p_cb->notif_watchdog_timer == nullptr) {
+        p_cb->notif_watchdog_timer = alarm_new("hogp_notif_watchdog");
+      }
+      alarm_set_on_mloop(p_cb->notif_watchdog_timer, BTA_HH_LE_NOTIF_WATCHDOG_TIMEOUT_MS,
+                         bta_hh_le_notif_watchdog_timeout, p_cb);
+    }
     if (interop_match_name(INTEROP_ENABLE_REMOTE_NOTIFICATIONS, "FeiZhiWee")) {
       tBTA_HH_LE_RPT* p_rpt = &p_cb->hid_srvc.report[0];
       const gatt::Descriptor* p_desc = find_descriptor_by_short_uuid(p_cb->conn_id,
@@ -1199,6 +1240,11 @@ void bta_hh_gatt_open(tBTA_HH_DEV_CB* p_cb, const tBTA_HH_DATA* p_buf) {
 
     BtaGattQueue::Clean(p_cb->conn_id);
 
+    if (bta_hh_le_pending_reconnect.erase(p_data->remote_bda)) {
+      log::info("re-arm: reconnected {}, proceeding with normal HOGP setup",
+                p_data->remote_bda);
+    }
+
     log::verbose("hid_handle=0x{:2x} conn_id=0x{:04x} cb_index={}", p_cb->hid_handle, p_cb->conn_id,
                  p_cb->index);
 
@@ -1282,6 +1328,15 @@ static void bta_hh_le_gatt_disc_cmpl(tBTA_HH_DEV_CB* p_cb, bthh_status_t status)
   if (status == BTHH_OK || status == BTHH_ERR_PROTO) {
     /* assign a special APP ID temp, since device type unknown */
     p_cb->app_id = BTA_HH_APP_ID_LE;
+
+    if (interop_match_addr_or_name(INTEROP_HOGP_RECONNECT_ON_FIRST_CONNECTION,
+                                   p_cb->link_spec.addrt.bda,
+                                   &btif_storage_get_remote_device_property) &&
+        !bta_hh_le_pending_reconnect.count(p_cb->link_spec.addrt.bda)) {
+      log::info("re-arm: {} matched INTEROP_HOGP_RECONNECT_ON_FIRST_CONNECTION",
+                p_cb->link_spec);
+      bta_hh_le_needs_reconnect.insert(p_cb->link_spec.addrt.bda);
+    }
 
     /* set report notification configuration */
     p_cb->clt_cfg_idx = 0;
@@ -1698,6 +1753,11 @@ static void bta_hh_le_input_rpt_notify(tBTA_GATTC_NOTIFY* p_data) {
     return;
   }
 
+  if (p_dev_cb->notif_watchdog_timer != nullptr) {
+    log::verbose("notif watchdog: cancelled for {}", p_dev_cb->link_spec);
+    alarm_cancel(p_dev_cb->notif_watchdog_timer);
+  }
+
   const gatt::Characteristic* p_char =
           BTA_GATTC_GetCharacteristic(p_dev_cb->conn_id, p_data->handle);
   if (p_char == NULL) {
@@ -1801,6 +1861,16 @@ void bta_hh_gatt_close(tBTA_HH_DEV_CB* p_cb, const tBTA_HH_DATA* p_data) {
   /* deregister all notification */
   bta_hh_le_deregister_input_notif(p_cb);
 
+  if (p_cb->notif_watchdog_timer != nullptr) {
+    alarm_free(p_cb->notif_watchdog_timer);
+    p_cb->notif_watchdog_timer = nullptr;
+  }
+
+  if (bta_hh_le_pending_reconnect.erase(p_cb->link_spec.addrt.bda)) {
+    log::info("re-arm: forced close for {}, re-adding to bg connection", p_cb->link_spec);
+    bta_hh_le_add_dev_bg_conn(p_cb);
+  }
+
   /* update total conn number */
   bta_hh_cb.cnt_num--;
 
@@ -1828,12 +1898,16 @@ void bta_hh_gatt_close(tBTA_HH_DEV_CB* p_cb, const tBTA_HH_DATA* p_data) {
  ******************************************************************************/
 void bta_hh_gatt_cancel(tBTA_HH_DEV_CB* p_cb) {
   if (p_cb->link_spec.transport == BT_TRANSPORT_LE) {
-    log::debug("Cancel GATT connection: gatt_if={}, addr={}, conn_id={}",
-                bta_hh_cb.gatt_if, p_cb->link_spec.addrt.bda, p_cb->conn_id);
+    log::debug("Cancel GATT connection: gatt_if={}, addr={}, conn_id={}, in_bg_conn={}",
+                bta_hh_cb.gatt_if, p_cb->link_spec.addrt.bda, p_cb->conn_id, p_cb->in_bg_conn);
     if (p_cb->conn_id == GATT_INVALID_CONN_ID) {
+      // No GATT connection was ever established for this device. Removing the
+      // background entry (if any) is sufficient; issuing an additional direct-connect
+      // cancel here has nothing to cancel and, before the guard added to
+      // gatt_cancel_open(), fed a synthesized GATT_CONN_TERMINATE_LOCAL_HOST back into
+      // this same path as an unbounded loop (CR 4611672). Keep the state teardown, drop
+      // the redundant cancel.
       bta_hh_le_remove_dev_bg_conn(p_cb);
-      BTA_GATTC_CancelOpen(bta_hh_cb.gatt_if,
-                       p_cb->link_spec.addrt.bda, true);
     } else {
       BtaGattQueue::Clean(p_cb->conn_id);
       BTA_GATTC_Close(p_cb->conn_id);

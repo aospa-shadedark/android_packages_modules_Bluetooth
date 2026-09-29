@@ -327,6 +327,19 @@ public:
     BidirectionalPair<AudioContexts> additional_local_contexts_based_on_states = {AudioContexts(),
                                                                                   AudioContexts()};
     if (IsInGame()) {
+      /* The in_game_ flag is a laggy hint from the upper layer (ActivityManager UID
+       * importance); when a game is backgrounded/closed it can remain set for up to
+       * GAME_BACKGROUND_MONITOR_MS (120 s) before setInGame(false) arrives. The HAL
+       * source metadata, on the other hand, is authoritative and real-time. If the HAL
+       * reports a clean media source (MEDIA present, GAME absent), the game audio has
+       * stopped, so a stale in_game_ must not re-promote the encoding session to GAME.
+       * Otherwise the group reconfigures to an incorrect unidirectional GAME config
+       * instead of MEDIA. A real game producing game audio always carries the GAME bit
+       * (AUDIO_USAGE_GAME -> LeAudioContextType::GAME), so this only suppresses the flag
+       * when the HAL has authoritatively moved away from game audio. */
+      bool hal_source_is_clean_media =
+              copy_local_encoding_ctxs.source.test(LeAudioContextType::MEDIA) &&
+              !copy_local_encoding_ctxs.source.test(LeAudioContextType::GAME);
       if (copy_local_encoding_ctxs.source.none() && copy_local_decoding_ctxs.none()) {
         log::info(
                 "Adding game Mode to remote Sink as Audio Hal doesn't specify metadata during the "
@@ -335,9 +348,16 @@ public:
         additional_local_contexts_based_on_states.source.set(LeAudioContextType::GAME);
       } else {
         if (copy_local_encoding_ctxs.source.any()) {
-          log::info("Adding game Mode to remote Sink");
-          copy_local_encoding_ctxs.source.set(LeAudioContextType::GAME);
-          additional_local_contexts_based_on_states.source.set(LeAudioContextType::GAME);
+          if (hal_source_is_clean_media) {
+            log::info(
+                    "Skip adding game Mode to remote Sink: HAL reports clean media source ({}), "
+                    "in_game_ is stale",
+                    ToString(copy_local_encoding_ctxs.source));
+          } else {
+            log::info("Adding game Mode to remote Sink");
+            copy_local_encoding_ctxs.source.set(LeAudioContextType::GAME);
+            additional_local_contexts_based_on_states.source.set(LeAudioContextType::GAME);
+          }
         }
 
         if (copy_local_decoding_ctxs.any() && !copy_local_decoding_ctxs.test(LeAudioContextType::LIVE)) {

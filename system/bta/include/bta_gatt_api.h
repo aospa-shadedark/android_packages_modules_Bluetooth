@@ -390,6 +390,26 @@ void BTA_GATTC_Close(tCONN_ID conn_id);
  ******************************************************************************/
 void BTA_GATTC_ServiceSearchRequest(tCONN_ID conn_id);
 
+/*******************************************************************************
+ *
+ * Function         BTA_GATTC_IsDiscoveryActive
+ *
+ * Description      Returns whether a GATT service discovery started on behalf
+ *                  of the given conn_id's own client is currently in flight.
+ *                  Callers that plan to close conn_id should check this first:
+ *                  closing while true forces bta_gattc to broadcast a
+ *                  discovery-failure completion to every other client sharing
+ *                  the same physical connection (see bta_gattc_disc_close /
+ *                  bta_gattc_reset_discover_st), aborting their independent,
+ *                  unrelated discovery even though it never actually failed.
+ *
+ * Parameters       conn_id: connection ID to check.
+ *
+ * Returns          true if this conn_id's own discovery is currently active.
+ *
+ ******************************************************************************/
+bool BTA_GATTC_IsDiscoveryActive(tCONN_ID conn_id);
+
 /**
  * This function is called to send "Find service by UUID" request. Used only for
  * PTS tests.

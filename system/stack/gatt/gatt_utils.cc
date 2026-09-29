@@ -1516,17 +1516,31 @@ void gatt_sr_update_prep_cnt(tGATT_TCB& tcb, tGATT_IF gatt_if, bool is_inc, bool
 
 /** Cancel LE Create Connection request */
 bool gatt_cancel_open(tGATT_IF gatt_if, const RawAddress& bda) {
-  if (connection_manager::direct_connect_remove(gatt_if, bda)) {
+  bool cancelled_direct = connection_manager::direct_connect_remove(gatt_if, bda);
+  if (cancelled_direct) {
     log::info("{} was doing direct connect to {}, canceled", gatt_if, bda);
   }
-  if (connection_manager::background_connect_remove(gatt_if, bda)) {
+  bool cancelled_background = connection_manager::background_connect_remove(gatt_if, bda);
+  if (cancelled_background) {
     log::info("{} was doing background connect to {}, canceled", gatt_if, bda);
   }
 
   tGATT_TCB* p_tcb = gatt_find_tcb_by_addr(bda, BT_TRANSPORT_LE);
   if (!p_tcb) {
     if (connection_manager::get_apps_connecting_to(bda).empty()) {
-      gatt_cleanup_upon_disc(bda, GATT_CONN_TERMINATE_LOCAL_HOST, BT_TRANSPORT_LE);
+      // Only synthesize a disconnect-complete notification when this call actually
+      // cancelled a pending connection attempt. If there was nothing to cancel there
+      // is no outstanding connect for any client to be notified about, and notifying
+      // anyway re-enters the failure path of every registered client: for HOGP that
+      // is BTA_GATTC_OPEN_EVT(GATT_CONN_TERMINATE_LOCAL_HOST) -> bta_hh_sdp_cmpl(ERR)
+      // -> BTA_HH_API_CLOSE_EVT -> bta_hh_gatt_cancel() -> back into this function,
+      // an unbounded host-side loop with no HCI traffic (CR 4611672).
+      if (cancelled_direct || cancelled_background) {
+        gatt_cleanup_upon_disc(bda, GATT_CONN_TERMINATE_LOCAL_HOST, BT_TRANSPORT_LE);
+      } else {
+        log::info("Nothing to cancel for gatt_if:{} peer:{} -- not notifying disconnect", gatt_if,
+                  bda);
+      }
     }
     return true;
   }

@@ -31,6 +31,7 @@
 
 #include <cstdint>
 
+#include "osi/include/alarm.h"
 #include "bta/include/bta_gatt_api.h"
 #include "bta/include/bta_hh_api.h"
 #include "bta/sys/bta_sys.h"
@@ -237,6 +238,8 @@ typedef struct {
   uint8_t scps_notify; /* scan refresh supported/notification enabled */
   bool security_pending;
 
+  alarm_t* notif_watchdog_timer; /* INTEROP_HOGP_RECONNECT_ON_FIRST_CONNECTION */
+
   tSDP_DISCOVERY_DB* p_disc_db;
 } tBTA_HH_DEV_CB;
 
@@ -315,6 +318,7 @@ void bta_hh_le_write_dev_act(tBTA_HH_DEV_CB* p_cb, const tBTA_HH_DATA* p_data);
 uint8_t bta_hh_le_add_device(tBTA_HH_DEV_CB* p_cb, const tBTA_HH_MAINT_DEV* p_dev_info);
 void bta_hh_le_remove_dev_bg_conn(tBTA_HH_DEV_CB* p_cb);
 void bta_hh_le_add_dev_bg_conn(tBTA_HH_DEV_CB* p_cb);
+void bta_hh_le_cleanup_dev(tBTA_HH_DEV_CB* p_cb);
 void bta_hh_le_open_fail(tBTA_HH_DEV_CB* p_cb, const tBTA_HH_DATA* p_data);
 void bta_hh_gatt_open(tBTA_HH_DEV_CB* p_cb, const tBTA_HH_DATA* p_data);
 void bta_hh_gatt_close(tBTA_HH_DEV_CB* p_cb, const tBTA_HH_DATA* p_data);

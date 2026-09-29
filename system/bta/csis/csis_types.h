@@ -97,6 +97,15 @@ public:
   bool is_gatt_service_valid = false;
   bool sirk_all_zeros = false;
   bool sirk_all_zeros_size_one = false;
+  /* Set when RemoveDevice() is requested while this device's own GATT
+   * service discovery is still in flight (e.g. right after SIRK
+   * verification succeeds). Closing the connection now would force
+   * bta_gattc's srcb-wide discovery-abort path (bta_gattc_reset_discover_st),
+   * which also kills any other client's independent, unrelated discovery
+   * sharing this device's physical link (e.g. DM's post-bond service
+   * discovery). Deferred until BTA_GATTC_SRVC_DISC_DONE_EVT confirms this
+   * device's own discovery has actually finished. */
+  bool remove_device_pending_discovery = false;
 
   GattServiceDevice(const RawAddress& addr, bool connecting)
       : addr(addr), connecting_actively(connecting) {}

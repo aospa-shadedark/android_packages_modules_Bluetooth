@@ -22,6 +22,12 @@ abstract class Constants {
     static final UUID CS_TEST_SERVICE_UUID =
             UUID.fromString("f81d4fae-7ccc-eeee-a765-00aaaaaaaaaa");
 
+    // Standard Bluetooth SIG Ranging Service UUID (0x185B), required in the Reflector's
+    // advertising data per the Ranging Application Profile (RAP) so that RAP-compliant
+    // Initiators can discover this device via a UUID-filtered scan.
+    static final UUID RANGING_SERVICE_UUID =
+            UUID.fromString("0000185B-0000-1000-8000-00805F9B34FB");
+
     enum GattState {
         DISCONNECTED,
         SCANNING,

@@ -77,7 +77,7 @@ public class BleConnectionViewModel extends AndroidViewModel {
     private String mTargetBtAddress = "";
     private int mTxPowerLevel = AdvertisingSetParameters.TX_POWER_HIGH;
     private int mPendingTxPowerLevel = -1; // -1 means no pending change
-    private MutableLiveData<Boolean> mShowTxPower = new MutableLiveData<>(false);
+    private MutableLiveData<Boolean> mShowTxPower = new MutableLiveData<>(true);
     private MutableLiveData<List<BluetoothDevice>> mConnectedDevices = new MutableLiveData<>(new ArrayList<>());
 
     private GattState mExpectedGattState = GattState.DISCONNECTED;
@@ -267,6 +267,7 @@ public class BleConnectionViewModel extends AndroidViewModel {
                 new AdvertiseData.Builder()
                         .setIncludeDeviceName(true)
                         .addServiceUuid(new ParcelUuid(Constants.CS_TEST_SERVICE_UUID))
+                        .addServiceUuid(new ParcelUuid(Constants.RANGING_SERVICE_UUID))
                         .build();
 
         printLog("Start connectable advertising");

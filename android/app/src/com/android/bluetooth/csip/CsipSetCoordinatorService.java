@@ -97,7 +97,7 @@ public class CsipSetCoordinatorService extends ConnectableProfile {
     final Map<Integer, Set<BluetoothDevice>> mGroupIdToConnectedDevices = new HashMap<>();
 
     @VisibleForTesting
-    final Map<BluetoothDevice, Integer> mFoundSetMemberToGroupId = new HashMap<>();
+    final Map<BluetoothDevice, Integer> mFoundSetMemberToGroupId = new ConcurrentHashMap<>();
 
     public CsipSetCoordinatorService(AdapterService adapterService) {
         this(adapterService, null, null);
@@ -482,6 +482,30 @@ public class CsipSetCoordinatorService extends ConnectableProfile {
     }
 
     /**
+     * Get grouped devices
+     *
+     * @param device a device whose group members are needed
+     * @param uuid profile context UUID used to resolve the group
+     * @return devices in mFoundSetMemberToGroupId belonging to the same group
+     */
+    public @NonNull List<BluetoothDevice> getFoundSetMemberDevices(
+            BluetoothDevice device, ParcelUuid uuid) {
+        int groupId = getGroupId(device, uuid);
+        if (groupId == IBluetoothCsipSetCoordinator.CSIS_GROUP_ID_INVALID) {
+            groupId = mFoundSetMemberToGroupId.getOrDefault(
+                    device, IBluetoothCsipSetCoordinator.CSIS_GROUP_ID_INVALID);
+        }
+        if (groupId == IBluetoothCsipSetCoordinator.CSIS_GROUP_ID_INVALID) {
+            return new ArrayList<>();
+        }
+        final int resolvedGroupId = groupId;
+        return mFoundSetMemberToGroupId.entrySet().stream()
+                .filter(e -> e.getValue().equals(resolvedGroupId))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Get group desired size
      *
      * @param groupId group ID
@@ -502,6 +526,11 @@ public class CsipSetCoordinatorService extends ConnectableProfile {
 
         if (!mDeviceGroupIdRankMap.containsKey(device)) {
             mDeviceGroupIdRankMap.put(device, new HashMap<>());
+        }
+
+        if (mFoundSetMemberToGroupId.remove(device) != null) {
+            Log.d(TAG, "handleDeviceAvailable: Device removed: " + device
+                    + " from mFoundSetMemberToGroupId");
         }
 
         Map<Integer, Integer> all_device_groups = mDeviceGroupIdRankMap.get(device);
@@ -761,7 +790,11 @@ public class CsipSetCoordinatorService extends ConnectableProfile {
     void bondStateChanged(BluetoothDevice device, int bondState) {
         Log.d(TAG, "Bond state changed for device: " + device + " state: " + bondState);
 
-        mFoundSetMemberToGroupId.remove(device);
+        // Retain in mFoundSetMemberToGroupId from BOND_BONDING until CSIP connected so that
+        // removeBond() can find the member via getFoundSetMemberDevices().
+        if (bondState == BluetoothDevice.BOND_NONE) {
+            mFoundSetMemberToGroupId.remove(device);
+        }
 
         // Remove state machine if the bonding for a device is removed
         if (bondState != BluetoothDevice.BOND_NONE) {
@@ -793,7 +826,7 @@ public class CsipSetCoordinatorService extends ConnectableProfile {
             groupsRelatedToDevice.forEach(
                     (groupId, rank) -> {
                         if (getGroupDevicesOrdered(groupId).size() == 0) {
-                            mFoundSetMemberToGroupId.values().remove(groupId);
+                            mFoundSetMemberToGroupId.values().removeIf(gId -> gId.equals(groupId));
                         }
                     });
         }
@@ -841,7 +874,7 @@ public class CsipSetCoordinatorService extends ConnectableProfile {
                                                 + groupId);
                             }
                         });
-                mFoundSetMemberToGroupId.values().remove(groupId);
+                mFoundSetMemberToGroupId.values().removeIf(gId -> gId.equals(groupId));
             }
         } else {
             mFoundSetMemberToGroupId.forEach(
@@ -878,6 +911,10 @@ public class CsipSetCoordinatorService extends ConnectableProfile {
         if (toState == STATE_DISCONNECTED) {
             int bondState = getAdapterService().getBondState(device);
             if (bondState == BluetoothDevice.BOND_NONE) {
+                if (mFoundSetMemberToGroupId.remove(device) != null) {
+                    Log.d(TAG, "connectionStateChanged: Device removed: " + device
+                            + " from mFoundSetMemberToGroupId");
+                }
                 Log.d(TAG, device + " is unbond. Remove state machine");
                 removeStateMachine(device);
             }

@@ -1130,8 +1130,13 @@ static bool bta_gattc_process_srvc_chg_ind(tCONN_ID conn_id, tBTA_GATTC_RCB* p_c
   p_srcb->srvc_hdl_chg = true;
   /* clear up all notification/indication registration */
   bta_gattc_clear_notif_registration(p_srcb, conn_id, s_handle, e_handle);
+
+  const auto update_count = ++p_srcb->update_count;
+  const auto num_reg_app = bta_gattc_num_reg_app();
+  log::verbose("conn_id:{}, update_count:{}, num_reg_app:{}",
+               conn_id, update_count, num_reg_app);
   /* service change indication all received, do discovery update */
-  if (++p_srcb->update_count == bta_gattc_num_reg_app()) {
+  if (update_count >= num_reg_app) {
     /* not an opened connection; or connection busy */
     /**
      * Iterate through all clcbs in order to find and reuse a discovering client.

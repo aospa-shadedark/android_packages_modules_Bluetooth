@@ -40,6 +40,9 @@ public:
                 queued_callbacks_.size(), connection_handle_);
       queued_callbacks_.clear();
     }
+    if (client_callbacks_ != nullptr) {
+      client_callbacks_ = nullptr;
+    }
   }
   void RegisterCallbacks(LeConnectionManagementCallbacks* callbacks, os::Handler* handler) {
     client_handler_ = handler;
@@ -57,8 +60,17 @@ public:
                                                     common::Unretained(this), __VA_ARGS__));       \
   } else {                                                                                         \
     if (client_callbacks_ != nullptr) {                                                            \
-      client_handler_->Post(common::BindOnce(&LeConnectionManagementCallbacks::f,                  \
-                                             common::Unretained(client_callbacks_), __VA_ARGS__)); \
+      client_handler_->Post(common::BindOnce(                                                     \
+              [](LeConnectionManagementCallbacks** cb_ptr, base::OnceClosure task) {               \
+                if (*cb_ptr == nullptr) {                                                          \
+                  log::warn("Dropping callback because connection is dead");                       \
+                } else {                                                                           \
+                  std::move(task).Run();                                                          \
+                }                                                                                  \
+              },                                                                                   \
+              &client_callbacks_,                                                                  \
+              common::BindOnce(&LeConnectionManagementCallbacks::f,                                \
+                               common::Unretained(client_callbacks_), __VA_ARGS__)));              \
     } else {                                                                                       \
       log::error("client_callbacks_ is null, can't post callback");                                \
     }                                                                                              \

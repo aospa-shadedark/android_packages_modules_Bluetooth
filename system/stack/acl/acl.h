@@ -141,6 +141,7 @@ struct tBTM_PM_MCB {
   tBTM_PM_PWR_MD req_mode;
   tBTM_PM_PWR_MD set_mode;
   tBTM_PM_STATE state = BTM_PM_ST_ACTIVE;  // 0
+  tBTM_PM_STATE prev_state = BTM_PM_ST_ACTIVE;  // rollback if cmd is rejected
   uint16_t interval = 0;
   uint16_t max_lat = 0;
   uint16_t min_loc_to = 0;

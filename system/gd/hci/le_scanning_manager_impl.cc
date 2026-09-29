@@ -1829,7 +1829,20 @@ struct LeScanningManagerImpl::impl : public LeAddressManagerCallback {
     on_found_on_lost_info.filter_index = filter_index;
     on_found_on_lost_info.advertiser_state = view.GetAdvertiserState();
     on_found_on_lost_info.advertiser_address = view.GetAdvertiserAddress();
-    on_found_on_lost_info.advertiser_address_type = view.GetAdvertiserAddressType();
+    {
+      uint8_t raw_address_type = view.GetAdvertiserAddressType();
+      switch (raw_address_type) {
+        case (uint8_t)AddressType::PUBLIC_DEVICE_ADDRESS:
+        case (uint8_t)AddressType::PUBLIC_IDENTITY_ADDRESS:
+          raw_address_type = (uint8_t)AddressType::PUBLIC_DEVICE_ADDRESS;
+          break;
+        case (uint8_t)AddressType::RANDOM_DEVICE_ADDRESS:
+        case (uint8_t)AddressType::RANDOM_IDENTITY_ADDRESS:
+          raw_address_type = (uint8_t)AddressType::RANDOM_DEVICE_ADDRESS;
+          break;
+      }
+      on_found_on_lost_info.advertiser_address_type = raw_address_type;
+    }
     on_found_on_lost_info.advertiser_info_present = view.GetAdvtInfoPresent();
     /* Extract the adv info details */
     if (on_found_on_lost_info.advertiser_info_present == AdvtInfoPresent::ADVT_INFO_PRESENT) {

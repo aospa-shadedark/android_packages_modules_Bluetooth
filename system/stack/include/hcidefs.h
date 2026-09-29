@@ -452,6 +452,10 @@
 /* Set Broadcast Source Channel Map Classification OCF */
 #define HCI_LE_SET_BIG_CHANNEL_MAP_CLASSIFICATION_OPCODE (0x0165 | HCI_GRP_VENDOR_SPECIFIC)
 
+/* HDT+ Features Enable OCF (OCF 0x27A) */
+#define HCI_SET_HDT_PLUS_FEATURES_ENABLE (0x027A | HCI_GRP_VENDOR_SPECIFIC)
+#define HCI_SET_HDT_PLUS_FEATURES_ENABLE_FUNC_CODE 0x20
+
 /* subcode for multi adv feature */
 #define BTM_BLE_MULTI_ADV_SET_PARAM 0x01
 #define BTM_BLE_MULTI_ADV_WRITE_ADV_DATA 0x02
@@ -1076,7 +1080,7 @@ typedef struct {
 #define HCI_LE_2M_PHY_SUPPORTED(x) ((x)[1] & 0x01)
 #define HCI_LE_CODED_PHY_SUPPORTED(x) ((x)[1] & 0x08)
 /* TODO: Decide and change bit number for HDT support */
-#define HCI_LE_HDT_PHY_SUPPORTED(x) ((x)[247] & 0x01)
+#define HCI_LE_HDT_PHY_SUPPORTED(x) ((x)[247] & 0x40)
 #define HCI_LE_EXTENDED_ADVERTISING_SUPPORTED(x) ((x)[1] & 0x10)
 #define HCI_LE_PERIODIC_ADVERTISING_SUPPORTED(x) ((x)[1] & 0x20)
 #define HCI_LE_PERIODIC_ADVERTISING_SYNC_TRANSFER_SENDER(x) ((x)[3] & 0x01)

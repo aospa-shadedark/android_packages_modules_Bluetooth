@@ -1705,6 +1705,20 @@ public class RemoteDevices {
         mAdapterService.discoveryResultHandler(deviceProp);
     }
 
+    /**
+     * Returns whether the device's LE and BR/EDR addresses were merged by address consolidation,
+     * which means its identity address is itself a bonded BR/EDR address. Only then is the identity
+     * address usable as the device's BR/EDR address; an identity address recorded by LE-only
+     * association ({@link #leAddressAssociateCallback}) may not be reachable over BR/EDR.
+     *
+     * @param device the remote device
+     * @return true if the device's addresses were consolidated, false otherwise
+     */
+    public boolean isAddressConsolidated(BluetoothDevice device) {
+        DeviceProperties deviceProperties = getDeviceProperties(device);
+        return deviceProperties != null && deviceProperties.isConsolidated();
+    }
+
     void addressConsolidateCallback(byte[] mainAddress, byte[] secondaryAddress) {
         DeviceProperties deviceProperties;
         BluetoothDevice device = getDevice(mainAddress);

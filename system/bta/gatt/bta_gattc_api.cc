@@ -145,6 +145,11 @@ void BTA_GATTC_ServiceSearchRequest(tCONN_ID conn_id) {
   bta_sys_sendmsg(p_buf);
 }
 
+bool BTA_GATTC_IsDiscoveryActive(tCONN_ID conn_id) {
+  tBTA_GATTC_CLCB* p_clcb = bta_gattc_find_clcb_by_conn_id(conn_id);
+  return p_clcb != nullptr && p_clcb->disc_active;
+}
+
 void BTA_GATTC_DiscoverServiceByUuid(tCONN_ID conn_id, const Uuid& srvc_uuid) {
   do_in_main_thread(base::BindOnce(
           base::IgnoreResult<tGATT_STATUS (*)(tCONN_ID, tGATT_DISC_TYPE, uint16_t, uint16_t,

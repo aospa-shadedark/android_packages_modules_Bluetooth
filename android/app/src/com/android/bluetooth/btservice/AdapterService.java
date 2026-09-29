@@ -3184,13 +3184,20 @@ public class AdapterService extends Service {
         Optional<CsipSetCoordinatorService> csipSetCoordinatorService =
                 getCsipSetCoordinatorService();
         if (csipSetCoordinatorService.isPresent()) {
+            CsipSetCoordinatorService csip = csipSetCoordinatorService.get();
             List<BluetoothDevice> groupDevices =
-                    csipSetCoordinatorService
-                            .get()
-                            .getGroupDevicesOrdered(device, BluetoothUuid.CAP);
+                    csip.getGroupDevicesOrdered(device, BluetoothUuid.CAP);
             if (!groupDevices.isEmpty()) {
                 Log.i(TAG, header + "Group devices found: " + groupDevices);
                 devices.addAll(groupDevices);
+            }
+            // Also include members still bonding or CSIP connecting (not yet in
+            // getGroupDevicesOrdered). Covers the full window until CSIP connected.
+            List<BluetoothDevice> foundSetMemberDevices =
+                    csip.getFoundSetMemberDevices(device, BluetoothUuid.CAP);
+            if (!foundSetMemberDevices.isEmpty()) {
+                Log.i(TAG, header + "Set members found: " + foundSetMemberDevices);
+                devices.addAll(foundSetMemberDevices);
             }
         }
 

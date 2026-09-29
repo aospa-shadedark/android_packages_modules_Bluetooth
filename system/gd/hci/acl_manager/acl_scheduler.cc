@@ -68,10 +68,16 @@ struct AclScheduler::impl {
       if (entry != nullptr && entry->address == address) {
         // If so, clear the current entry and advance the queue
         outgoing_entry_.reset();
+        // If we deliberately cancelled this outgoing to let a colliding incoming connection
+        // win (see CancelOutgoingAclConnectionIfPending), the controller emits a separate
+        // Connection Complete for the incoming. In that case we must NOT erase the pending
+        // incoming below - it still needs to be reported through handle_incoming_connection
+        // when its own completion arrives.
+        bool cancelled_for_incoming = cancelled_outgoing_address_set_.erase(address) != 0;
         handle_outgoing_connection();
         // Check if incoming request also exists for this address
-        if (incoming_connecting_address_set_.find(address) !=
-            incoming_connecting_address_set_.end()) {
+        if (!cancelled_for_incoming && incoming_connecting_address_set_.find(address) !=
+                                               incoming_connecting_address_set_.end()) {
           log::warn("Incoming connection request also exists for {}", address);
           incoming_connecting_address_set_.erase(address);
         }
@@ -116,6 +122,40 @@ struct AclScheduler::impl {
             [&](auto /* entry */) { cancel_connection_completed(); });
     if (!ok) {
       log::error("Attempted to cancel connection to {} that does not exist", address);
+    }
+  }
+
+  // Cancel an outstanding/queued OUTGOING Create Connection to this address, if any, so it does
+  // not collide at the controller with an incoming connection request from the same peer. Unlike
+  // CancelAclConnection this is a silent no-op when nothing matches, so it is safe to call
+  // unconditionally on every incoming connection.
+  void CancelOutgoingAclConnectionIfPending(
+          Address address, common::ContextualOnceCallback<void()> cancel_connection) {
+    // Is this address the currently-outstanding outgoing Create Connection?
+    if (outgoing_entry_.has_value()) {
+      auto* entry = std::get_if<AclCreateConnectionQueueEntry>(&outgoing_entry_.value());
+      if (entry != nullptr && entry->address == address) {
+        // The Create Connection was already sent; ask the caller to emit Create Connection
+        // Cancel. outgoing_entry_ stays set until the resulting Connection Complete arrives
+        // (same contract as CancelAclConnection). Remember that we cancelled it on purpose so
+        // ReportAclConnectionCompletion does not erase the incoming we are about to accept.
+        log::info("Cancelling outstanding outgoing connection to {} to accept incoming", address);
+        cancelled_outgoing_address_set_.insert(address);
+        cancel_connection();
+        return;
+      }
+    }
+    // Otherwise drop any queued (not-yet-started) outgoing Create Connection to this address. Such
+    // an entry never reached the controller, so there is no Connection Complete to wait for and
+    // nothing to remember.
+    auto it = std::find_if(pending_outgoing_operations_.begin(), pending_outgoing_operations_.end(),
+                           [&](const QueueEntry& e) {
+                             auto* p = std::get_if<AclCreateConnectionQueueEntry>(&e);
+                             return p != nullptr && p->address == address;
+                           });
+    if (it != pending_outgoing_operations_.end()) {
+      log::info("Dropping queued outgoing connection to {} to accept incoming", address);
+      pending_outgoing_operations_.erase(it);
     }
   }
 
@@ -190,6 +230,7 @@ struct AclScheduler::impl {
     pending_outgoing_operations_.clear();
     outgoing_entry_.reset();
     incoming_connecting_address_set_.clear();
+    cancelled_outgoing_address_set_.clear();
     log::info("AclScheduler stopped: state cleared.");
   }
 
@@ -358,6 +399,10 @@ private:
   std::optional<QueueEntry> outgoing_entry_;
   std::deque<QueueEntry> pending_outgoing_operations_;
   std::unordered_set<Address> incoming_connecting_address_set_;
+  // Addresses whose outstanding outgoing Create Connection we cancelled on purpose to resolve a
+  // page/accept collision in favor of an incoming connection. Used to avoid erasing the pending
+  // incoming when the cancelled outgoing's completion arrives.
+  std::unordered_set<Address> cancelled_outgoing_address_set_;
   bool stopped_ = false;
 
 public:
@@ -405,6 +450,12 @@ void AclScheduler::CancelAclConnection(
         common::ContextualOnceCallback<void()> cancel_connection_completed) {
   pimpl_->handler_->Call(&impl::CancelAclConnection, common::Unretained(pimpl_.get()), address,
                          std::move(cancel_connection), std::move(cancel_connection_completed));
+}
+
+void AclScheduler::CancelOutgoingAclConnectionIfPending(
+        Address address, common::ContextualOnceCallback<void()> cancel_connection) {
+  pimpl_->handler_->Call(&impl::CancelOutgoingAclConnectionIfPending,
+                         common::Unretained(pimpl_.get()), address, std::move(cancel_connection));
 }
 
 void AclScheduler::EnqueueRemoteNameRequest(

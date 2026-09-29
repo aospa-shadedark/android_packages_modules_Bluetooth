@@ -66,6 +66,15 @@ public:
                            common::ContextualOnceCallback<void()> cancel_connection,
                            common::ContextualOnceCallback<void()> cancel_connection_completed);
 
+  // Cancel an outstanding/queued outgoing ACL Create Connection to this address, if any, to
+  // avoid a page/accept collision with an incoming connection from the same peer. Unlike
+  // CancelAclConnection, this is a silent no-op when there is no matching outgoing, so it is
+  // safe to call unconditionally when handling an incoming connection. If an outgoing request
+  // was already sent to the controller, cancel_connection is invoked (to emit Create
+  // Connection Cancel) and the outgoing entry is retained until its completion arrives.
+  void CancelOutgoingAclConnectionIfPending(
+          Address address, common::ContextualOnceCallback<void()> cancel_connection);
+
   // Schedule a Remote Name Request. When the request is started, start_request will be invoked. If
   // the request is cancelled before it is dequeued, cancel_request_completed will be invoked.
   void EnqueueRemoteNameRequest(Address address,

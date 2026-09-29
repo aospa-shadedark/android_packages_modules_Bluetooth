@@ -422,6 +422,11 @@ typedef enum {
   //Some devices may not accept role switch during encryption
   INTEROP_DELAY_ROLE_SWITCH_STILL_ENCRYPTION,
 
+  // Some HOGP devices ACK the CCCD write but never emit notifications on the
+  // first connection after pairing until the ACL is re-established. Force a
+  // disconnect+reconnect after the initial HOGP setup to recover notifications.
+  INTEROP_HOGP_RECONNECT_ON_FIRST_CONNECTION,
+
   END_OF_INTEROP_LIST
 } interop_feature_t;
 

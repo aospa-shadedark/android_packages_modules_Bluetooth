@@ -95,6 +95,9 @@ typedef struct {
   void (*refresh_enc_key_v2)(uint16_t handle, uint8_t hdt_mic_length);
   void (*ble_set_data_length_v2)(uint16_t handle, uint16_t tx_pdu_len, uint16_t tx_time,
                                 uint8_t phys);
+  void (*set_hdt_plus_features_enable)(uint16_t handle, uint64_t hdt_plus_features,
+                                               uint8_t br_c_to_p, uint8_t br_p_to_c,
+                                               uint16_t rates_c_to_p, uint16_t rates_p_to_c);
 } bthci_test_interface_t;
 
 typedef struct {

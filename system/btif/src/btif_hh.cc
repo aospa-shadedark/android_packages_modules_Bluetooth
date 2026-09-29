@@ -40,9 +40,12 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <android-base/properties.h>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <thread>
 
 #include "bta_api.h"
 #include "bta_hh_api.h"
@@ -88,6 +91,14 @@ static int btif_hh_keylockstates = 0;  // The current key state of each key
 
 #define BTIF_HH_INCOMING_CONNECTION_DURING_BONDING_TIMEOUT_MS (4 * 1000)
 #define BTIF_HH_UNEXPECTED_INCOMING_CONNECTION_TIMEOUT_MS (1 * 1000)
+
+// Minimum delay before resuming a background LE HOGP reconnect after a failed
+// open completion or ACL disconnect. Without this, a failing device can
+// otherwise be retried unconditionally and synchronously from within the
+// failure callback itself, racing connection_manager's accept-list bookkeeping
+// teardown from the very same failure and producing an unbounded host-side
+// retry loop (CR 4611672).
+#define BTIF_HH_HOGP_RECONNECT_DELAY_MS (500)
 
 /* HH request events */
 typedef enum {
@@ -157,6 +168,7 @@ static tHID_KB_LIST hid_kb_numlock_on_list[] = {
 
 static void btif_hh_transport_select(AclLinkSpec& link_spec);
 static void btif_hh_timer_timeout(void* data);
+static void btif_hh_hogp_reconnect_timeout(void* data);
 static void bte_hh_evt(tBTA_HH_EVT event, tBTA_HH* p_data);
 
 /*******************************************************************************
@@ -516,6 +528,36 @@ static void cancel_pending_incoming_connection_timer(bool remove_dev) {
   btif_hh_cb.pending_incoming_connection = {};
 }
 
+// Fires BTIF_HH_HOGP_RECONNECT_DELAY_MS after a failed LE HOGP open completion
+// (see hh_open_handler()) or ACL disconnect (see btif_hh_acl_disconnected()).
+// By the time this runs, connection_manager's accept-list bookkeeping teardown
+// for the just-failed attempt has had time to settle, so the re-issued
+// BTA_HhOpen() is no longer misclassified as racing an in-flight cancel.
+// |data| is a btif_hh_added_device_t* into the stable btif_hh_cb.added_devices[] array.
+//
+// NOTE: do NOT free or null reconnect_timer here -- OSI alarm.h forbids calling
+// alarm_free() from inside the alarm's own callback, and this pointer is the sole
+// ownership handle for the alarm_t. Pending state is tested via alarm_is_scheduled()
+// in both call sites; the alarm object lives until alarm_free() in the remove/disable
+// cleanup paths.
+static void btif_hh_hogp_reconnect_timeout(void* data) {
+  btif_hh_added_device_t* added_dev = static_cast<btif_hh_added_device_t*>(data);
+
+  if (added_dev->link_spec.addrt.bda.IsEmpty()) {
+    log::info("Device slot no longer in use -- dropping deferred HOGP reconnect");
+    return;
+  }
+
+  if (!added_dev->reconnect_allowed) {
+    log::info("Reconnect no longer allowed for {} -- dropping deferred HOGP reconnect",
+              added_dev->link_spec);
+    return;
+  }
+
+  log::info("Resuming background connection attempt for {}", added_dev->link_spec);
+  BTA_HhOpen(added_dev->link_spec, false);
+}
+
 static void hh_connect_complete(tBTA_HH_CONN& conn, bthh_connection_state_t state) {
   if (state != BTHH_CONN_STATE_CONNECTED && conn.status == BTHH_OK) {
     BTA_HhClose(conn.handle);
@@ -556,6 +598,7 @@ static bool hh_add_device(const AclLinkSpec& link_spec, tBTA_HH_ATTR_MASK attr_m
       dev.dev_handle = BTA_HH_INVALID_HANDLE;
       dev.attr_mask = attr_mask;
       dev.reconnect_allowed = reconnect_allowed;
+      dev.reconnect_timer = nullptr;
       return true;
     }
   }
@@ -636,6 +679,9 @@ static void hh_disable_handler(const bthh_status_t& status) {
     for (i = 0; i < BTIF_HH_MAX_HID; i++) {
       alarm_free(btif_hh_cb.devices[i].vup_timer);
     }
+    for (i = 0; i < BTIF_HH_MAX_ADDED_DEV; i++) {
+      alarm_free(btif_hh_cb.added_devices[i].reconnect_timer);
+    }
     btif_hh_cb = {};
     for (i = 0; i < BTIF_HH_MAX_HID; i++) {
       btif_hh_cb.devices[i].state = BTHH_CONN_STATE_UNKNOWN;
@@ -669,8 +715,23 @@ static void hh_open_handler(tBTA_HH_CONN& conn) {
     if (conn.link_spec.transport == BT_TRANSPORT_LE) {
       btif_hh_added_device_t* added_dev = btif_hh_find_added_dev(conn.link_spec);
       if (added_dev != nullptr && added_dev->reconnect_allowed) {
-        log::info("Resuming background connection attempt for {}", conn.link_spec);
-        BTA_HhOpen(conn.link_spec, false);
+        if (added_dev->reconnect_timer == nullptr) {
+          added_dev->reconnect_timer = alarm_new("btif_hh.hogp_reconnect_timer");
+        }
+        if (alarm_is_scheduled(added_dev->reconnect_timer)) {
+          // A reconnect is already scheduled for this device -- do not re-issue
+          // BTA_HhOpen() again from this failure callback. Retrying unconditionally
+          // and synchronously here races connection_manager's accept-list bookkeeping
+          // teardown from this very failure, producing an unbounded host-side retry
+          // loop (CR 4611672).
+          log::info("HOGP reconnect already pending for {} -- not retrying again",
+                    conn.link_spec);
+        } else {
+          log::info("Scheduling background connection attempt for {} in {}ms", conn.link_spec,
+                    BTIF_HH_HOGP_RECONNECT_DELAY_MS);
+          alarm_set_on_mloop(added_dev->reconnect_timer, BTIF_HH_HOGP_RECONNECT_DELAY_MS,
+                             btif_hh_hogp_reconnect_timeout, added_dev);
+        }
       }
     }
     return;
@@ -988,8 +1049,35 @@ void btif_hh_acl_disconnected(const RawAddress& addr, tBT_TRANSPORT transport) {
     return;
   }
 
+  // Defer through the same reconnect_timer dedup guard hh_open_handler() uses --
+  // this ACL disconnect can itself be the tail end of a just-failed open attempt,
+  // and retrying unconditionally and synchronously here reproduces the identical
+  // host-side retry-storm mechanism this CL fixes for hh_open_handler().
+  if (added_dev->reconnect_timer == nullptr) {
+    added_dev->reconnect_timer = alarm_new("btif_hh.hogp_reconnect_timer");
+  }
+  if (alarm_is_scheduled(added_dev->reconnect_timer)) {
+    log::debug("HOGP reconnect already pending for {} -- not rearming from ACL disconnect",
+               link_spec);
+    return;
+  }
+
   log::debug("Rearm HoGP reconnection for {}", addr);
-  BTA_HhOpen(p_dev->link_spec, false);
+  // Test-only: delay the Rearm so that a simultaneous BTA_HH_OPEN_EVT/BTHH_ERR
+  // can reach hh_open_handler() while state is still IDLE, letting off-target
+  // simulation tools (bumble/rootcanal) reliably trigger this reconnect race for
+  // regression testing. Controlled by persist.bluetooth.test.hogp_cancel_delay_ms
+  // (default 0 = disabled, no-op in production).
+  {
+    int delay_ms = android::base::GetIntProperty(
+            "persist.bluetooth.test.hogp_cancel_delay_ms", 0);
+    if (delay_ms > 0) {
+      log::info("test: delaying HOGP Rearm {}ms to expose storm race", delay_ms);
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    }
+  }
+  alarm_set_on_mloop(added_dev->reconnect_timer, BTIF_HH_HOGP_RECONNECT_DELAY_MS,
+                     btif_hh_hogp_reconnect_timeout, added_dev);
 }
 
 static void btif_hh_remove_device_in_jni_thread(const AclLinkSpec& link_spec) {
@@ -1006,6 +1094,8 @@ static void btif_hh_remove_device_in_jni_thread(const AclLinkSpec& link_spec) {
       announce_vup = true;
       BTA_HhRemoveDev(p_added_dev->dev_handle);
       btif_storage_remove_hid_info(p_added_dev->link_spec);
+      alarm_free(p_added_dev->reconnect_timer);
+      p_added_dev->reconnect_timer = nullptr;
       p_added_dev->link_spec = {};
       p_added_dev->dev_handle = BTA_HH_INVALID_HANDLE;
 

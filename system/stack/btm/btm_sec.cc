@@ -4039,10 +4039,21 @@ void btm_sec_disconnected(uint16_t handle, tHCI_REASON reason, std::string comme
     return;
   }
 
-  if ((p_device->sec_rec.classic_link == tSECURITY_STATE::AUTHENTICATING ||
-       p_device->sec_rec.classic_link == tSECURITY_STATE::ENCRYPTING) &&
-      transport != BT_TRANSPORT_BR_EDR) {
-    log::debug("Disconnection on the other transport while encrypting BR/EDR");
+  /* A BR/EDR security procedure legitimately passes through several non-IDLE
+   * states (WAIT_AUTH_DELAY -> AUTHENTICATING -> GETTING_NAME -> ENCRYPTING /
+   * AUTHORIZING ...). btm_sec_auth_complete() chains straight from
+   * AUTHENTICATING into GETTING_NAME, so a disconnect on the LE transport can
+   * land while classic_link is any one of these. Preserve the classic procedure
+   * (and its pending callback) for any in-progress state as long as the BR/EDR
+   * ACL is still up; only the matching transport's state was forced to IDLE
+   * above, so classic_link still reflects the true BR/EDR procedure here. */
+  if (transport != BT_TRANSPORT_BR_EDR &&
+      p_device->sec_rec.classic_link != tSECURITY_STATE::IDLE &&
+      p_device->hci_handle != HCI_INVALID_HANDLE) {
+    log::debug(
+            "Disconnection on the other transport while BR/EDR security procedure in progress "
+            "(classic_link={})",
+            p_device->sec_rec.classic_link);
     return;
   }
 
@@ -4841,6 +4852,12 @@ static void btm_sec_wait_and_start_authentication(BtmDevice* p_device) {
     delay_auth = BTM_SEC_START_AUTH_DELAY;
   }
 
+  /* Mark the BR/EDR link as having authentication pending on the delay timer.
+   * Without this, classic_link stays IDLE for the duration of the delay and a
+   * disconnection on the LE transport would tear down this pending classic
+   * security procedure (and its callback) in btm_sec_disconnected(). */
+  p_device->sec_rec.classic_link = tSECURITY_STATE::WAIT_AUTH_DELAY;
+
   BtStatus status =
           do_in_main_thread_delayed(base::BindOnce(btm_sec_auth_timer_timeout, p_device->bd_addr),
                                     std::chrono::milliseconds(delay_auth));
@@ -4865,6 +4882,12 @@ static void btm_sec_auth_timer_timeout(RawAddress bd_addr) {
   } else if (btm_dev_authenticated(p_device)) {
     log::info("device is already authenticated");
 
+    /* No authentication will be started on the delay timer, so restore the
+     * BR/EDR link to IDLE. Leaving it at WAIT_AUTH_DELAY would make subsequent
+     * security/service-access requests treat the link as busy and defer them
+     * until the next pairing-state-idle transition or link teardown. */
+    p_device->sec_rec.classic_link = tSECURITY_STATE::IDLE;
+
     tBTM_SEC_CALLBACK* p_callback = p_device->sec_rec.p_callback;
     p_device->sec_rec.p_callback = NULL;
 
@@ -4874,6 +4897,13 @@ static void btm_sec_auth_timer_timeout(RawAddress bd_addr) {
     }
   } else if (p_device->sec_rec.classic_link == tSECURITY_STATE::AUTHENTICATING) {
     log::info("device is in the process of authenticating");
+  } else if (p_device->hci_handle == HCI_INVALID_HANDLE) {
+    /* BR/EDR link went down during the authentication delay window. The pending
+     * security callback (if any) was already completed by btm_sec_disconnected;
+     * there is no link left to authenticate on. Restore classic_link to IDLE so
+     * a stale WAIT_AUTH_DELAY does not block future security procedures. */
+    p_device->sec_rec.classic_link = tSECURITY_STATE::IDLE;
+    log::info("BR/EDR link no longer connected, skipping authentication");
   } else {
     log::info("starting authentication");
     p_device->sec_rec.classic_link = tSECURITY_STATE::AUTHENTICATING;

@@ -325,6 +325,22 @@ struct btsnd_hcic_ble_read_enc_key_sched_debug_mode {
 };
 extern struct btsnd_hcic_ble_read_enc_key_sched_debug_mode btsnd_hcic_ble_read_enc_key_sched_debug_mode;
 
+// Name: btsnd_hcic_set_hdt_plus_features_enable
+// Params: uint16_t conn_handle, uint64_t hdt_plus_features, uint8_t br_c_to_p,
+// uint8_t br_p_to_c, uint16_t rates_c_to_p, uint16_t rates_p_to_c
+// Return: void
+struct btsnd_hcic_set_hdt_plus_features_enable {
+  std::function<void(uint16_t, uint64_t, uint8_t, uint8_t, uint16_t, uint16_t)> body{
+          [](uint16_t /* conn_handle */, uint64_t /* hdt_plus_features */,
+             uint8_t /* br_c_to_p */, uint8_t /* br_p_to_c */, uint16_t /* rates_c_to_p */,
+             uint16_t /* rates_p_to_c */) {}};
+  void operator()(uint16_t conn_handle, uint64_t hdt_plus_features, uint8_t br_c_to_p,
+                  uint8_t br_p_to_c, uint16_t rates_c_to_p, uint16_t rates_p_to_c) {
+    body(conn_handle, hdt_plus_features, br_c_to_p, br_p_to_c, rates_c_to_p, rates_p_to_c);
+  }
+};
+extern struct btsnd_hcic_set_hdt_plus_features_enable btsnd_hcic_set_hdt_plus_features_enable;
+
 }  // namespace stack_hcic_hciblecmds
 }  // namespace mock
 }  // namespace test

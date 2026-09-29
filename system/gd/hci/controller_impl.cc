@@ -161,9 +161,13 @@ struct ControllerImpl::impl {
     }
 
     if (hdt_enabled && is_supported(OpCode::LE_SET_HDT_DEFAULT_PARAMETERS)) {
+      uint8_t preferred_packet_format = static_cast<uint8_t>(osi_property_get_int32(
+              "persist.qcom.bluetoooth.hdt.preferred_packet_format",
+              kDefaultPreferredPacketFormat));
+      log::info("HDT preferred packet format: {}", preferred_packet_format);
       hci_->EnqueueCommand(
               LeSetHdtDefaultParametersBuilder::Create(kDefaultPreferredMicLength,
-                                                       kDefaultPreferredPacketFormat,
+                                                       preferred_packet_format,
                                                        kDefaultPreferredAclRates),
               handler_->BindOnceOn(this, &ControllerImpl::impl::le_set_hdt_default_parameters_handler));
     }

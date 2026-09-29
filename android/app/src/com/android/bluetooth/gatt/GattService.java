@@ -541,6 +541,9 @@ public class GattService extends ProfileService {
         if (app == null) {
             return;
         }
+        // Stop any ranging session this app owns for this device.
+        mDistanceMeasurementManager.postOnDistanceMeasurementThread(
+                () -> mDistanceMeasurementManager.onOwnerGattDisconnected(app.getUid(), device));
         switch (status) {
             case 0x00 -> { // HCI_SUCCESS
                 status = GATT_SUCCESS;

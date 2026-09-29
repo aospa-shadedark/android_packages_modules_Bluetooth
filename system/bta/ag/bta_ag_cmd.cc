@@ -1722,9 +1722,23 @@ static void bta_ag_hfp_result(tBTA_AG_SCB* p_scb, const tBTA_AG_API_RESULT& resu
       }
       /* send callsetup indicator */
       if (p_scb->post_sco == BTA_AG_POST_SCO_CALL_END) {
-        /* Need to sent 2 callsetup IND's(Call End and Incoming call) after SCO
-         * close. */
-        p_scb->post_sco = BTA_AG_POST_SCO_CALL_END_INCALL;
+        if (bta_ag_is_sco_managed_by_audio() && !bta_ag_sco_is_closing(p_scb)) {
+          /* Audio owns the SCO lifecycle and no close is in flight, so
+           * nothing will drain post_sco. Send the indicators now, call end
+           * first, and RING last since it is a no-op until callsetup_ind is
+           * incoming. */
+          bta_ag_send_call_inds(p_scb, BTA_AG_END_CALL_RES);
+          /* Clear post_sco so the indicators are not sent again on SCO close. */
+          p_scb->post_sco = BTA_AG_POST_SCO_NONE;
+          bta_ag_send_call_inds(p_scb, result.result);
+          bta_ag_send_ring(p_scb, tBTA_AG_DATA::kEmpty);
+        } else {
+          /* Either SCO close will drain this via bta_ag_post_sco_close(), or
+           * SCO is already closing and a BTA_AG_SCO_CLOSE_EVT is imminent.
+           * Need to sent 2 callsetup IND's(Call End and Incoming call) after
+           * SCO close. */
+          p_scb->post_sco = BTA_AG_POST_SCO_CALL_END_INCALL;
+        }
       } else {
         bta_ag_send_call_inds(p_scb, result.result);
 

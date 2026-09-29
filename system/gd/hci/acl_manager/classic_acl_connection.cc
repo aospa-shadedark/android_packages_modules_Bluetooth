@@ -41,6 +41,9 @@ public:
     // If callbacks were registered, they should have been delivered.
     log::assert_that(client_callbacks_ == nullptr || queued_callbacks_.empty(),
                      "assert failed: client_callbacks_ == nullptr || queued_callbacks_.empty()");
+    if (client_callbacks_ != nullptr) {
+      client_callbacks_ = nullptr;
+    }
   }
   void RegisterCallbacks(ConnectionManagementCallbacks* callbacks, os::Handler* handler) {
     client_handler_ = handler;
@@ -52,13 +55,22 @@ public:
     }
   }
 
-#define SAVE_OR_CALL(f, ...)                                                                       \
-  if (client_handler_ == nullptr) {                                                                \
-    queued_callbacks_.emplace_back(common::BindOnce(&ConnectionManagementCallbacks::f,             \
-                                                    common::Unretained(this), ##__VA_ARGS__));     \
-  } else {                                                                                         \
-    client_handler_->Post(common::BindOnce(&ConnectionManagementCallbacks::f,                      \
-                                           common::Unretained(client_callbacks_), ##__VA_ARGS__)); \
+#define SAVE_OR_CALL(f, ...)                                                                   \
+  if (client_handler_ == nullptr) {                                                            \
+    queued_callbacks_.emplace_back(common::BindOnce(&ConnectionManagementCallbacks::f,         \
+                                                    common::Unretained(this), ##__VA_ARGS__)); \
+  } else {                                                                                     \
+    client_handler_->Post(common::BindOnce(                                                    \
+            [](ConnectionManagementCallbacks** cb_ptr, base::OnceClosure task) {               \
+              if (*cb_ptr == nullptr) {                                                        \
+                log::warn("Dropping callback because connection is dead");                     \
+              } else {                                                                         \
+                std::move(task).Run();                                                         \
+              }                                                                                \
+            },                                                                                 \
+            &client_callbacks_,                                                                \
+            common::BindOnce(&ConnectionManagementCallbacks::f,                                \
+                             common::Unretained(client_callbacks_), ##__VA_ARGS__)));          \
   }
 
   void OnConnectionPacketTypeChanged(uint16_t packet_type) override {

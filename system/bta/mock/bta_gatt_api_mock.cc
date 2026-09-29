@@ -226,6 +226,11 @@ void bta_gatt_client_dump(int fd) {
   gatt_interface->ClientDump(fd);
 }
 
+bool BTA_GATTC_IsDiscoveryActive(tCONN_ID conn_id) {
+  log::assert_that(gatt_interface != nullptr, "Mock GATT interface not set!");
+  return gatt_interface->IsDiscoveryActive(conn_id);
+}
+
 void BTA_GATTS_Disable(void) {
   log::assert_that(gatt_server_interface != nullptr, "Mock GATT server interface not set!");
   gatt_server_interface->Disable();

@@ -371,6 +371,52 @@ public class DistanceMeasurementManager {
         };
     }
 
+    // Stops ranging sessions owned by appUid for device; called on GATT disconnect.
+    void onOwnerGattDisconnected(int appUid, BluetoothDevice device) {
+        enforceThread();
+
+        String address = mAdapterService.getIdentityAddress(device.getAddress());
+        if (address == null) {
+            address = device.getAddress();
+        }
+        logd(
+                ("onOwnerGattDisconnected(): appUid=" + appUid)
+                        + (", device=" + toAnonymizedAddress(address)));
+
+        stopOwnedTrackers(mRssiTrackers, address, appUid, DISTANCE_MEASUREMENT_METHOD_RSSI);
+        stopOwnedTrackers(
+                mCsTrackers, address, appUid, DISTANCE_MEASUREMENT_METHOD_CHANNEL_SOUNDING);
+    }
+
+    private void stopOwnedTrackers(
+            Map<String, Set<DistanceMeasurementTracker>> trackers,
+            String identityAddress,
+            int appUid,
+            int method) {
+        Set<DistanceMeasurementTracker> set = trackers.get(identityAddress);
+        if (set == null) {
+            return;
+        }
+        // Copy first -- removing from `set` while iterating it would risk a
+        // ConcurrentModificationException.
+        List<DistanceMeasurementTracker> owned = new ArrayList<>();
+        for (DistanceMeasurementTracker tracker : set) {
+            if (tracker.mAppUid == appUid) {
+                owned.add(tracker);
+            }
+        }
+        for (DistanceMeasurementTracker tracker : owned) {
+            invokeOnStopped(
+                    tracker.mCallback, tracker.mDevice, BluetoothStatusCodes.REASON_LOCAL_APP_REQUEST);
+            tracker.cancelTimer();
+            set.remove(tracker);
+        }
+        if (!owned.isEmpty() && set.isEmpty()) {
+            trackers.remove(identityAddress);
+            mNativeInterface.stopDistanceMeasurement(identityAddress, method);
+        }
+    }
+
     int getChannelSoundingMaxSupportedSecurityLevel(BluetoothDevice remoteDevice) {
         enforceThread();
 

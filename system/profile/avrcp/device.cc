@@ -375,7 +375,7 @@ void Device::VendorPacketHandler(uint8_t label, std::shared_ptr<VendorPacket> pk
       }
 
       PlayerAttribute attribute = list_player_setting_values_request->GetRequestedAttribute();
-      if (attribute < PlayerAttribute::REPEAT || attribute > PlayerAttribute::SHUFFLE) {
+      if (attribute < PlayerAttribute::EQUALIZER || attribute > PlayerAttribute::SCAN) {
         log::warn("{}: Player Setting Attribute is not valid", address_);
         auto response = RejectBuilder::MakeBuilder(pkt->GetCommandPdu(), Status::INVALID_PARAMETER);
         send_message(label, false, std::move(response));
@@ -409,7 +409,7 @@ void Device::VendorPacketHandler(uint8_t label, std::shared_ptr<VendorPacket> pk
               get_current_player_setting_value_request->GetRequestedAttributes();
       for (auto attribute : attributes) {
         log::info("{}: PDU: {} attribute: {}", address_, pkt->GetCommandPdu(), (int)attribute);
-        if (attribute < PlayerAttribute::REPEAT || attribute > PlayerAttribute::SHUFFLE) {
+        if (attribute < PlayerAttribute::EQUALIZER || attribute > PlayerAttribute::SCAN) {
           log::warn("{}: Player Setting Attribute is not valid PDU: {} attribute: {}", address_,
                     pkt->GetCommandPdu(), (int)attribute);
           auto response =
@@ -451,7 +451,7 @@ void Device::VendorPacketHandler(uint8_t label, std::shared_ptr<VendorPacket> pk
       for (size_t i = 0; i < attributes.size(); i++) {
         log::info("{}: PDU: {} attributes[i] = {}", address_, pkt->GetCommandPdu(),
                   (int)attributes[i]);
-        if (attributes[i] < PlayerAttribute::REPEAT || attributes[i] > PlayerAttribute::SHUFFLE) {
+        if (attributes[i] < PlayerAttribute::EQUALIZER || attributes[i] > PlayerAttribute::SCAN) {
           log::warn("{}: Player Setting Attribute is not valid PDU: {} attributes[i] = {}",
                     address_, pkt->GetCommandPdu(), (int)attributes[i]);
           invalid_request = true;
@@ -629,7 +629,9 @@ void Device::HandleNotification(uint8_t label,
         send_message(label, false, std::move(response));
         return;
       }
-      std::vector<PlayerAttribute> attributes = {PlayerAttribute::REPEAT, PlayerAttribute::SHUFFLE};
+      std::vector<PlayerAttribute> attributes = {PlayerAttribute::EQUALIZER,
+                                                 PlayerAttribute::REPEAT, PlayerAttribute::SHUFFLE,
+                                                 PlayerAttribute::SCAN};
       player_settings_interface_->GetCurrentPlayerSettingValue(
               attributes, base::Bind(&Device::PlayerSettingChangedNotificationResponse,
                                      weak_ptr_factory_.GetWeakPtr(), label, true));

@@ -177,6 +177,16 @@ struct is_hal_enabled {
 };
 extern struct is_hal_enabled is_hal_enabled;
 
+// Name: is_aidl_enabled
+// Params:
+// Return: bool
+struct is_aidl_enabled {
+  static bool return_value;
+  std::function<bool()> body{[]() { return return_value; }};
+  bool operator()() { return body(); }
+};
+extern struct is_aidl_enabled is_aidl_enabled;
+
 // Name: is_hal_offloading
 // Params:
 // Return: bool
