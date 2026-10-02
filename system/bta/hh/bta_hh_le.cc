@@ -705,7 +705,9 @@ static void bta_hh_le_open_cmpl(tBTA_HH_DEV_CB* p_cb) {
       alarm_set_on_mloop(p_cb->notif_watchdog_timer, BTA_HH_LE_NOTIF_WATCHDOG_TIMEOUT_MS,
                          bta_hh_le_notif_watchdog_timeout, p_cb);
     }
-    if (interop_match_name(INTEROP_ENABLE_REMOTE_NOTIFICATIONS, "FeiZhiWee")) {
+    if (interop_match_addr_or_name(INTEROP_ENABLE_REMOTE_NOTIFICATIONS,
+                                    p_cb->link_spec.addrt.bda,
+                                    &btif_storage_get_remote_device_property)) {
       tBTA_HH_LE_RPT* p_rpt = &p_cb->hid_srvc.report[0];
       const gatt::Descriptor* p_desc = find_descriptor_by_short_uuid(p_cb->conn_id,
                                            p_rpt->char_inst_id, GATT_UUID_CHAR_CLIENT_CONFIG);

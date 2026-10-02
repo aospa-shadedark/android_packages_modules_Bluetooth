@@ -98,7 +98,11 @@ static constexpr uint8_t kMaxRetryCounterForCsEnable = 0x03;
 static constexpr uint16_t kCommandRetryIntervalMs = 300;  // 300 ms
 static constexpr uint16_t kInvalidConnInterval = 0;  // valid value is from 0x0006 to 0x0C80
 static constexpr uint16_t kDefaultRasMtu = 247;      // Section 3.1.2 of RAP 1.0
-static constexpr uint8_t kAttHeaderSize = 5;         // Section 3.2.2.1 of RAS 1.0
+// ATT Handle Value Notification/Indication value length is limited by ATT_MTU minus
+// the ATT opcode (1 octet) and attribute handle (2 octets).
+static constexpr uint8_t kAttHandleValueHeaderSize = 3;
+// Keep RAS fragments below GATT_MAX_ATTR_LEN as enforced by BTA_GATTS_HandleValueIndication().
+static constexpr uint16_t kMaxGattAttributeValueSize = 512;
 static constexpr uint8_t kRasSegmentHeaderSize = 1;
 static constexpr uint16_t kEnableSecurityTimeoutMs = 10000;  // 10s
 static constexpr uint16_t kProcedureScheduleGuardMs = 1000;  // 1s
@@ -1035,9 +1039,19 @@ struct DistanceMeasurementManagerImpl::impl : bluetooth::hal::RangingHalCallback
     auto it = gatt_mtus_.find(connection_handle);
     uint16_t mtu = kDefaultRasMtu;
     if (it != gatt_mtus_.end()) {
-      mtu = gatt_mtus_[connection_handle];
+      mtu = it->second;
     }
-    return mtu - kAttHeaderSize - kRasSegmentHeaderSize;
+
+    if (mtu <= kAttHandleValueHeaderSize + kRasSegmentHeaderSize) {
+      log::warn("Invalid RAS MTU {}, fallback to default {}", mtu, kDefaultRasMtu);
+      mtu = kDefaultRasMtu;
+    }
+
+    uint16_t max_gatt_value_size = mtu - kAttHandleValueHeaderSize;
+    max_gatt_value_size = std::min(max_gatt_value_size, kMaxGattAttributeValueSize);
+
+    uint16_t raw_payload_size = max_gatt_value_size - kRasSegmentHeaderSize;
+    return raw_payload_size;
   }
 
   void handle_ras_server_disconnected(const Address& identity_address, uint16_t connection_handle) {

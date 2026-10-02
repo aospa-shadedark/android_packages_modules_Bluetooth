@@ -72,7 +72,19 @@ public class PlayerSettingsManager {
     /** Unregister callbacks */
     public void cleanup() {
         if (mActivePlayerController != null) {
-            unregisterMediaControllerCallback(mActivePlayerController, mControllerCallback);
+            // If the package is frozen, the binder call to unregister the callback will block
+            // and can trigger an ANR (see AOSP "Fix frozen app crash in PlayerSettingsManager").
+            boolean packageIsNotFrozen = appIsNotFrozen();
+            Log.i(
+                    TAG,
+                    "cleanup - active app uid=" + mActiveSessionUid
+                            + " isNotFrozen=" + packageIsNotFrozen);
+            if (packageIsNotFrozen) {
+                Log.i(TAG, "cleanup - unregistering the MediaControllerCallback");
+                unregisterMediaControllerCallback(mActivePlayerController, mControllerCallback);
+            } else {
+                Log.w(TAG, "cleanup - active app is frozen, skipping unregisterCallback");
+            }
         }
         mActivePlayerController = null;
         mActiveSessionUid = INVALID_UID;

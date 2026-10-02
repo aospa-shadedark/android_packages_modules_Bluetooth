@@ -456,6 +456,18 @@ public:
     expected_remote_context_types.source &=
             (local_encoding_contexts_types_.sink | adjusted_dec_context_types |
              additional_local_contexts_based_on_states.sink);
+
+    /* Audio HAL only sends metadata for the encoding (Sink) direction during Game mode, so the
+     * mask above always clears the Source side even when the remote genuinely supports GAME on
+     * both directions (advertised in its PACS). Restore GAME on Source whenever the remote's own
+     * bidirectional support set says so, so a bidirectional-capable remote isn't downgraded to
+     * unidirectional just because the HAL didn't provide Source-side metadata.
+     */
+    if (used_bidirectional_on_encoding.test(LeAudioContextType::GAME) &&
+        bidirectional_context.test(LeAudioContextType::GAME)) {
+      expected_remote_context_types.source.set(LeAudioContextType::GAME);
+    }
+
     log::info("expected_remote_context_types.sink = {}", ToString(expected_remote_context_types.sink));
     log::info("expected_remote_context_types.source = {}", ToString(expected_remote_context_types.source));
     if (!expected_remote_context_types.sink.none()) {

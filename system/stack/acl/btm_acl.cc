@@ -1325,7 +1325,11 @@ void btm_acl_role_changed(tHCI_STATUS hci_status, const RawAddress& bd_addr, tHC
   tACL_CONN* p = internal_.btm_bda_to_acl(bd_addr, BT_TRANSPORT_BR_EDR);
   if (hci_status == HCI_SUCCESS && new_role == HCI_ROLE_CENTRAL) {
     interop_database_remove_addr(INTEROP_DYNAMIC_ROLE_SWITCH, bd_addr);
-    p->switch_role_attempts = 0;
+    if (p != nullptr) {
+      p->switch_role_attempts = 0;
+    } else {
+      log::warn("Unable to find active acl for {}, skip resetting role switch attempts", bd_addr);
+    }
   }
 
   if (hci_status == HCI_SUCCESS) {

@@ -41,6 +41,7 @@
 #include "btif/include/btif_common.h"
 #include "btif/include/btif_config.h"
 #include "btif/include/btif_debug_conn.h"
+#include "btif/include/btif_jni_task.h"
 #include "btif/include/btif_profile_queue.h"
 #include "btif/include/core_callbacks.h"
 #include "btif/include/stack_manager_t.h"
@@ -166,6 +167,12 @@ void stack_init(bluetooth::core::CoreInterface* interface) {
 
   module_init(get_local_module(DEVICE_IOT_CONFIG_MODULE));
   module_init(get_local_module(OSI_MODULE));
+  // Start bt_jni_thread before GD_SHIM_MODULE: GD's async HCI/reactor threads begin
+  // dispatching legacy-shim callbacks through do_in_jni_thread() as soon as
+  // module_start_up() below returns, and those posts are silently dropped if
+  // bt_jni_thread's message loop isn't running yet. jni_thread_startup() is
+  // idempotent, so the call inside btif_init_bluetooth() remains a no-op.
+  jni_thread_startup();
   module_start_up(get_local_module(GD_SHIM_MODULE));
   module_init(get_local_module(BTIF_CONFIG_MODULE));
   btif_init_bluetooth();

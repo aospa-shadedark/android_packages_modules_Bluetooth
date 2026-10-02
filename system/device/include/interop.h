@@ -427,6 +427,12 @@ typedef enum {
   // disconnect+reconnect after the initial HOGP setup to recover notifications.
   INTEROP_HOGP_RECONNECT_ON_FIRST_CONNECTION,
 
+  // Some carkits give up waiting for the AVRCP TG connection before the
+  // fixed BTA_AV_RC_DISC_TIME_VAL delay expires, leaving their media UI
+  // stuck showing "Not Connected" even though A2DP audio streams fine.
+  // For such devices, connect AVRCP immediately without the delay.
+  INTEROP_AVRCP_SKIP_CONNECTION_DELAY,
+
   END_OF_INTEROP_LIST
 } interop_feature_t;
 

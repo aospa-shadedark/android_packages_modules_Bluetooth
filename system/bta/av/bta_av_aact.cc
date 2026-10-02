@@ -295,6 +295,25 @@ static void notify_start_failed(tBTA_AV_SCB* p_scb) {
 
 /*******************************************************************************
  *
+ * Function         bta_av_should_skip_rc_disc_delay
+ *
+ * Description      Some carkits give up waiting for the AVRCP TG connection
+ *                  before the fixed BTA_AV_RC_DISC_TIME_VAL delay expires,
+ *                  leaving their media UI stuck showing "Not Connected" even
+ *                  though A2DP audio streams fine. Skip the delay for
+ *                  devices on the INTEROP_AVRCP_SKIP_CONNECTION_DELAY list.
+ *
+ * Returns          true if the AVRCP connection delay should be skipped
+ *
+ ******************************************************************************/
+static bool bta_av_should_skip_rc_disc_delay(const tBTA_AV_SCB* p_scb) {
+  return com_android_bluetooth_flags_no_avrcp_connection_delay() ||
+         interop_match_addr_or_name(INTEROP_AVRCP_SKIP_CONNECTION_DELAY, p_scb->PeerAddress(),
+                                    btif_storage_get_remote_device_property);
+}
+
+/*******************************************************************************
+ *
  * Function         bta_av_st_rc_timer
  *
  * Description      start the AVRC timer if no RC connection & CT is supported &
@@ -311,7 +330,7 @@ void bta_av_st_rc_timer(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
       /* (bta_av_cb.features & BTA_AV_FEAT_RCCT) && */
       (p_scb->use_rc || (p_scb->role & BTA_AV_ROLE_AD_ACP))) {
     if ((p_scb->wait & BTA_AV_WAIT_ROLE_SW_BITS) == 0) {
-      if (!com_android_bluetooth_flags_no_avrcp_connection_delay()) {
+      if (!bta_av_should_skip_rc_disc_delay(p_scb)) {
         bta_sys_start_timer(p_scb->avrc_ct_timer, BTA_AV_RC_DISC_TIME_VAL, BTA_AV_AVRC_TIMER_EVT,
                             p_scb->hndl);
       } else {
@@ -823,7 +842,7 @@ void bta_av_do_disc_a2dp(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
 
   if (p_scb->wait & BTA_AV_WAIT_CHECK_RC) {
     p_scb->wait &= ~BTA_AV_WAIT_CHECK_RC;
-    if (!com_android_bluetooth_flags_no_avrcp_connection_delay()) {
+    if (!bta_av_should_skip_rc_disc_delay(p_scb)) {
       bta_sys_start_timer(p_scb->avrc_ct_timer, BTA_AV_RC_DISC_TIME_VAL, BTA_AV_AVRC_TIMER_EVT,
                           p_scb->hndl);
     } else {
@@ -3061,7 +3080,7 @@ void bta_av_open_rc(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
       if (p_scb->rc_handle == BTA_AV_RC_HANDLE_NONE) {
         /* AVRC channel is not connected. delay a little bit */
         if ((p_scb->wait & BTA_AV_WAIT_ROLE_SW_BITS) == 0) {
-          if (!com_android_bluetooth_flags_no_avrcp_connection_delay()) {
+          if (!bta_av_should_skip_rc_disc_delay(p_scb)) {
             bta_sys_start_timer(p_scb->avrc_ct_timer, BTA_AV_RC_DISC_TIME_VAL,
                                 BTA_AV_AVRC_TIMER_EVT, p_scb->hndl);
           } else {

@@ -55,8 +55,10 @@ import com.android.internal.annotations.VisibleForTesting;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 // Describes the phone policy
@@ -91,6 +93,12 @@ public class PhonePolicy implements AdapterService.BluetoothStateCallback {
     private static final Duration CONNECT_OTHER_PROFILES_REDUCED_TIMEOUT_DELAYED = Duration.ofSeconds(2);
     private static final Duration AUTO_CONNECT_PROFILES_TIMEOUT_DELAYED = Duration.ofMillis(500);
 
+    // Number of HFP connect/disconnect flaps (CONNECTED then dropped while the device stays
+    // otherwise connected) tolerated before PhonePolicy stops auto-reconnecting HFP for the
+    // device this session. Guards against an endless HFP/RFCOMM reconnect loop with carkits
+    // that accept A2DP but immediately tear down the HFP SLC.
+    private static final int MAX_HFP_CONN_RETRY_COUNT = 2;
+
     private static final int DELAY_A2DP_SLEEP_MILLIS = 100;
 
     private final BluetoothStorageManager mStorage;
@@ -99,6 +107,11 @@ public class PhonePolicy implements AdapterService.BluetoothStateCallback {
     private final Set<BluetoothDevice> mHeadsetRetrySet = new HashSet<>();
     private final Set<BluetoothDevice> mA2dpRetrySet = new HashSet<>();
     private final Set<BluetoothDevice> mConnectOtherProfilesDeviceSet = new HashSet<>();
+    // Per-device count of HFP connections that came up and were then torn down (typically by
+    // the remote) within the same session. Some carkits accept A2DP but immediately close the
+    // HFP SLC; once this reaches MAX_HFP_CONN_RETRY_COUNT PhonePolicy stops auto-reconnecting HFP so it
+    // does not loop forever while A2DP stays up. Cleared when the device fully disconnects.
+    private final Map<BluetoothDevice, Integer> mHeadsetFlapCount = new HashMap<>();
 
     @VisibleForTesting boolean mAutoConnectProfilesSupported;
     @VisibleForTesting boolean mLeAudioEnabledByDefault;
@@ -650,6 +663,17 @@ public class PhonePolicy implements AdapterService.BluetoothStateCallback {
                 connectOtherProfile(device);
             }
         } else if (nextState == STATE_DISCONNECTED) {
+            if (profile == BluetoothProfile.HEADSET
+                    && prevState == STATE_DISCONNECTING
+                    && device != null) {
+                // HFP was connected and then torn down (DISCONNECTING->DISCONNECTED; typically
+                // the remote closes the SLC), as opposed to a connect attempt that never reached
+                // CONNECTED (CONNECTING->DISCONNECTED). Count these flaps; some carkits accept
+                // A2DP but immediately tear down HFP. Once the count reaches MAX_HFP_CONN_RETRY_COUNT,
+                // processConnectOtherProfiles stops retrying HFP so PhonePolicy does not loop
+                // forever while A2DP stays connected.
+                mHeadsetFlapCount.merge(device, 1, Integer::sum);
+            }
             if (prevState == STATE_CONNECTING || prevState == STATE_DISCONNECTING) {
                 if (profile == BluetoothProfile.A2DP || profile == BluetoothProfile.HEADSET) {
                     mStorage.onDeviceDisconnected(device, profile);
@@ -763,6 +787,9 @@ public class PhonePolicy implements AdapterService.BluetoothStateCallback {
             Log.d(TAG, "handleAllProfilesDisconnected: all profiles disconnected for " + device);
             mHeadsetRetrySet.remove(device);
             mA2dpRetrySet.remove(device);
+            // Device fully disconnected: reset HFP flap tracking so a fresh user-initiated
+            // reconnect starts clean.
+            mHeadsetFlapCount.remove(device);
             if (allProfilesEmpty) {
                 Log.d(TAG, "handleAllProfilesDisconnected: no more devices connected");
                 // reset retry status so that in the next round we can start retrying connections
@@ -776,6 +803,7 @@ public class PhonePolicy implements AdapterService.BluetoothStateCallback {
     private void resetStates() {
         mHeadsetRetrySet.clear();
         mA2dpRetrySet.clear();
+        mHeadsetFlapCount.clear();
     }
 
     @VisibleForTesting
@@ -953,6 +981,7 @@ public class PhonePolicy implements AdapterService.BluetoothStateCallback {
 
         if (headset.isPresent()) {
             if (!mHeadsetRetrySet.contains(device)
+                    && (mHeadsetFlapCount.getOrDefault(device, 0) < MAX_HFP_CONN_RETRY_COUNT)
                     && (headset.get().getConnectionPolicy(device) == CONNECTION_POLICY_ALLOWED)
                     && (headset.get().getConnectionState(device) == STATE_DISCONNECTED)) {
                 Log.d(TAG, log + "Retrying HFP connection");

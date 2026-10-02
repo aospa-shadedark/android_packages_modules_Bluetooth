@@ -1655,6 +1655,7 @@ struct iso_impl {
     STREAM_TO_UINT8(evt.irc, data);
     STREAM_TO_UINT16(evt.max_pdu, data);
     STREAM_TO_UINT16(evt.iso_interval, data);
+    STREAM_TO_UINT16(evt.rates, data);
     STREAM_TO_UINT8(evt.encryption_enabled, data);
     STREAM_TO_UINT8(evt.mic_length, data);
 
@@ -1665,8 +1666,8 @@ struct iso_impl {
     log::assert_that(num_bis != 0, "Bis count is 0");
     log::assert_that(len == (22 + num_bis * sizeof(uint16_t)),
                      "Invalid packet length: {}. Number of bis: {}", len, num_bis);
-    auto group_it = big_handle_to_group_map_.find(evt.big_handle);
-    log::assert_that(group_it != big_handle_to_group_map_.end(),
+    auto group_it = source_big_handle_to_group_map_.find(evt.big_handle);
+    log::assert_that(group_it != source_big_handle_to_group_map_.end(),
                      "Cannot find group for big_handle: {}", evt.big_handle);
 
     size_t stream_sz_before_big_create = conn_hdl_to_iso_stream_map_.size();
