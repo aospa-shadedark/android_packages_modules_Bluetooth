@@ -413,4 +413,10 @@ void btsnd_hcic_set_hdt_plus_features_enable(uint16_t conn_handle,
                                               uint8_t br_c_to_p, uint8_t br_p_to_c,
                                               uint16_t rates_c_to_p,
                                               uint16_t rates_p_to_c);
+
+void btsnd_hcic_le_xdt_features_enable(uint16_t conn_handle,
+                                        uint64_t xdt_features,
+                                        uint8_t br_c_to_p, uint8_t br_p_to_c,
+                                        uint16_t rates_c_to_p,
+                                        uint16_t rates_p_to_c);
 #endif

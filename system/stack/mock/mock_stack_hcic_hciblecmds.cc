@@ -56,6 +56,7 @@ struct btsnd_hcic_refresh_enc_key_v2 btsnd_hcic_refresh_enc_key_v2;
 struct btsnd_hcic_ble_set_data_length_v2 btsnd_hcic_ble_set_data_length_v2;
 struct btsnd_hcic_ble_read_enc_key_sched_debug_mode btsnd_hcic_ble_read_enc_key_sched_debug_mode;
 struct btsnd_hcic_set_hdt_plus_features_enable btsnd_hcic_set_hdt_plus_features_enable;
+struct btsnd_hcic_le_xdt_features_enable btsnd_hcic_le_xdt_features_enable;
 
 }  // namespace stack_hcic_hciblecmds
 }  // namespace mock
@@ -181,6 +182,13 @@ void btsnd_hcic_set_hdt_plus_features_enable(uint16_t conn_handle, uint64_t hdt_
   inc_func_call_count(__func__);
   test::mock::stack_hcic_hciblecmds::btsnd_hcic_set_hdt_plus_features_enable(
           conn_handle, hdt_plus_features, br_c_to_p, br_p_to_c, rates_c_to_p, rates_p_to_c);
+}
+void btsnd_hcic_le_xdt_features_enable(uint16_t conn_handle, uint64_t xdt_features,
+                                        uint8_t br_c_to_p, uint8_t br_p_to_c,
+                                        uint16_t rates_c_to_p, uint16_t rates_p_to_c) {
+  inc_func_call_count(__func__);
+  test::mock::stack_hcic_hciblecmds::btsnd_hcic_le_xdt_features_enable(
+          conn_handle, xdt_features, br_c_to_p, br_p_to_c, rates_c_to_p, rates_p_to_c);
 }
 // Mocked functions complete
 // END mockcify generation

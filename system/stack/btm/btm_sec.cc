@@ -4909,13 +4909,12 @@ static void btm_sec_auth_timer_timeout(RawAddress bd_addr) {
      * until the next pairing-state-idle transition or link teardown. */
     p_device->sec_rec.classic_link = tSECURITY_STATE::IDLE;
 
-    tBTM_SEC_CALLBACK* p_callback = p_device->sec_rec.p_callback;
-    p_device->sec_rec.p_callback = NULL;
-
-    if (p_callback != nullptr) {
-      (*p_callback)(p_device->bd_addr, BT_TRANSPORT_BR_EDR,
-                                       p_device->sec_rec.p_ref_data, tBTM_STATUS::BTM_SUCCESS);
-    }
+    /* Complete via btm_sec_dev_rec_cback_event() rather than invoking
+     * p_callback directly: it also calls btm_sec_check_pending_reqs(), which
+     * resubmits any service access request (e.g. an incoming RFCOMM SABME)
+     * that was deferred into service_access_q_ while classic_link was
+     * WAIT_AUTH_DELAY. Without it that request is never retried. */
+    btm_sec_dev_rec_cback_event(p_device, tBTM_STATUS::BTM_SUCCESS, false);
   } else if (p_device->sec_rec.classic_link == tSECURITY_STATE::AUTHENTICATING) {
     log::info("device is in the process of authenticating");
   } else if (p_device->hci_handle == HCI_INVALID_HANDLE) {

@@ -931,6 +931,7 @@ public:
     if (!device) {
       bluetooth::log::error("Skipping unknown device disconnect, connection_id={:#x}",
                             connection_id);
+      StartOpportunisticConnect(remote_bda);
       return;
     }
 

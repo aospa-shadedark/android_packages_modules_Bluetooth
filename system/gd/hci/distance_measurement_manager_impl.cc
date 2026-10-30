@@ -1456,6 +1456,8 @@ struct DistanceMeasurementManagerImpl::impl : bluetooth::hal::RangingHalCallback
     cs_tracker.disable_due_to_ras_packets_delayed = false;
     cs_tracker.procedure_data_list.clear();
     cs_tracker.proc_start_timestampMs = 0;  // Reset for fresh start on next session
+    cs_tracker.calculated_schedule_interval_ms = 0;  // Reset stale interval to prevent blocking
+    cs_tracker.last_enable_sent_time = std::chrono::steady_clock::time_point();  // Reset timestamp to allow immediate re-enable
   }
 
   void handle_cs_setup_failure(
@@ -2202,8 +2204,37 @@ struct DistanceMeasurementManagerImpl::impl : bluetooth::hal::RangingHalCallback
         log::debug("Connection 0x{:04x}: proc_start_timestampMs initialized", connection_handle);
       }
     } else if (event_view.GetState() == Enable::DISABLED) {
-      if (event_view.GetStatus() == ErrorCode::SUCCESS) {
-        // local or remote host requested it.
+      auto req_it = cs_requester_trackers_.find(connection_handle);
+      bool is_enable_retry_case = event_view.GetStatus() != ErrorCode::SUCCESS &&
+                                  req_it != cs_requester_trackers_.end() &&
+                                  req_it->second.state == CsTrackerState::WAIT_FOR_PROCEDURE_ENABLED &&
+                                  config_id == req_it->second.used_config_id;
+      if (is_enable_retry_case) {
+        log::warn("Received DISABLED procedure with error code {}. Retry counter {}",
+                  ErrorCodeText(event_view.GetStatus()),
+                  req_it->second.retry_counter_for_cs_enable);
+        if (req_it->second.retry_counter_for_cs_enable++ >= kMaxRetryCounterForCsEnable) {
+          handle_cs_setup_failure(
+                  connection_handle, REASON_INTERNAL_ERROR,
+                  ChannelSoundingStopReason::REASON_PROCEDURE_ENABLE_COMPLETE_FAILED);
+        } else {
+          uint32_t retry_interval = (req_it->second.calculated_schedule_interval_ms > 0) ?
+                                     req_it->second.calculated_schedule_interval_ms :
+                                     req_it->second.interval_ms;
+          req_it->second.procedure_schedule_guard_alarm->Cancel();
+          log::info("Connection 0x{:04x}: Retry procedure enable after {} ms",
+                    connection_handle, retry_interval);
+          req_it->second.procedure_schedule_guard_alarm->Schedule(
+                  common::Bind(&impl::send_le_cs_procedure_enable, common::Unretained(this),
+                               connection_handle, Enable::ENABLED),
+                  std::chrono::milliseconds(retry_interval));
+        }
+      } else {
+        // local or remote host requested disable; treat as success irrespective of status.
+        if (event_view.GetStatus() != ErrorCode::SUCCESS) {
+          log::warn("Received DISABLED procedure with error code {} while disabling, treating as success.",
+                    ErrorCodeText(event_view.GetStatus()));
+        }
         uint8_t valid_requester_states = static_cast<uint8_t>(CsTrackerState::STARTED);
         valid_requester_states |= static_cast<uint8_t>(CsTrackerState::STOPPED);
         uint8_t valid_responder_states = static_cast<uint8_t>(CsTrackerState::STARTED);
@@ -2245,31 +2276,6 @@ struct DistanceMeasurementManagerImpl::impl : bluetooth::hal::RangingHalCallback
         // Clear config_id if tracker is in HOLD state after successful disable
         if (live_tracker->state == CsTrackerState::HOLD) {
           live_tracker->used_config_id = kInvalidConfigId;
-        }
-      } else {
-        auto req_it = cs_requester_trackers_.find(connection_handle);
-        if (req_it != cs_requester_trackers_.end() &&
-            req_it->second.state == CsTrackerState::WAIT_FOR_PROCEDURE_ENABLED &&
-            config_id == req_it->second.used_config_id) {
-          log::warn("Received DISABLED procedure with error code {}. Retry counter {}",
-                    ErrorCodeText(event_view.GetStatus()),
-                    req_it->second.retry_counter_for_cs_enable);
-          if (req_it->second.retry_counter_for_cs_enable++ >= kMaxRetryCounterForCsEnable) {
-            handle_cs_setup_failure(
-                    connection_handle, REASON_INTERNAL_ERROR,
-                    ChannelSoundingStopReason::REASON_PROCEDURE_ENABLE_COMPLETE_FAILED);
-          } else {
-            uint32_t retry_interval = (req_it->second.calculated_schedule_interval_ms > 0) ?
-                                       req_it->second.calculated_schedule_interval_ms :
-                                       req_it->second.interval_ms;
-            req_it->second.procedure_schedule_guard_alarm->Cancel();
-            log::info("Connection 0x{:04x}: Retry procedure enable after {} ms",
-                      connection_handle, retry_interval);
-            req_it->second.procedure_schedule_guard_alarm->Schedule(
-                    common::Bind(&impl::send_le_cs_procedure_enable, common::Unretained(this),
-                                 connection_handle, Enable::ENABLED),
-                    std::chrono::milliseconds(retry_interval));
-          }
         }
       }
     }

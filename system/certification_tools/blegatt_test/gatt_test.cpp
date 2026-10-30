@@ -1768,6 +1768,7 @@ void do_send_ble_set_default_phy(char* p);
 void do_send_refresh_enc_key_v2(char* p);
 void do_send_ble_set_data_length_v2(char* p);
 void do_send_set_hdt_plus_features_enable(char* p);
+void do_send_le_xdt_features_enable(char* p);
 void reset_rcv_iteration(char* p);
 void do_l2cap_cos_ced_bi_29_c(char* p);
 
@@ -1941,6 +1942,9 @@ const t_cmd console_cmd_list[] = {
      ":: handle(hex) tx_pdu_length(hex) tx_time(hex) phys(hex)", 0},
      {"btsnd_hcic_set_hdt_plus_features_enable", do_send_set_hdt_plus_features_enable,
      ":: handle(hex), hdt_plus_features(16 hex chars), br_c_to_p(hex), br_p_to_c(hex), "
+     "rates_c_to_p(hex), rates_p_to_c(hex)", 0},
+     {"btsnd_hcic_le_xdt_features_enable", do_send_le_xdt_features_enable,
+     ":: handle(hex), xdt_features(16 hex chars), br_c_to_p(hex), br_p_to_c(hex), "
      "rates_c_to_p(hex), rates_p_to_c(hex)", 0},
      {"reset_rcv_iteration", reset_rcv_iteration,
      ":: ", 0},
@@ -4335,6 +4339,23 @@ void do_send_set_hdt_plus_features_enable(char* p) {
     sHciInterface->set_hdt_plus_features_enable(handle, hdt_plus_features, br_c_to_p,
                                                  br_p_to_c, rates_c_to_p, rates_p_to_c);
     printf("Sent btsnd_hcic_set_hdt_plus_features_enable command via interface.\n");
+  } else {
+    printf("HCI Interface not available.\n");
+  }
+}
+
+void do_send_le_xdt_features_enable(char* p) {
+  uint16_t handle = get_hex(&p, 0);
+  uint64_t xdt_features = get_hex64(&p, 0);
+  uint8_t br_c_to_p = get_hex_byte(&p, 0);
+  uint8_t br_p_to_c = get_hex_byte(&p, 0);
+  uint16_t rates_c_to_p = get_hex(&p, 0);
+  uint16_t rates_p_to_c = get_hex(&p, 0);
+
+  if (sHciInterface) {
+    sHciInterface->le_xdt_features_enable(handle, xdt_features, br_c_to_p,
+                                           br_p_to_c, rates_c_to_p, rates_p_to_c);
+    printf("Sent btsnd_hcic_le_xdt_features_enable command via interface.\n");
   } else {
     printf("HCI Interface not available.\n");
   }

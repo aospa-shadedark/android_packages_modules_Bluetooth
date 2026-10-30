@@ -1796,7 +1796,12 @@ public class ActiveDeviceManager implements AdapterService.BluetoothStateCallbac
             }
             boolean success;
             if (device == null) {
-                success = leAudio.get().removeActiveDevice(!stopAudio);
+                if (mLeAudioActiveDevice == null) {
+                    Log.d(TAG, "mLeAudioActiveDevice is null");
+                    success = true;
+                } else {
+                    success = leAudio.get().removeActiveDevice(!stopAudio);
+                }
             } else {
                 if ((mLeAudioActiveDevice != null)
                         && (Objects.equals(

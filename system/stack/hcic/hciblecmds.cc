@@ -126,6 +126,10 @@ inline base::OnceCallback<void(bluetooth::hci::CommandCompleteView)> make_cmd_co
  * BR_P_To_C(1) + Rates_C_To_P(2) + Rates_P_To_C(2) */
 #define HCIC_PARAM_SIZE_SET_HDT_PLUS_FEATURES_ENABLE 17
 
+/* SubOpcode(1) + Connection_Handle(2) + Features(8) + BR_C_To_P(1) +
+ * BR_P_To_C(1) + Rates_C_To_P(2) + Rates_P_To_C(2) */
+#define HCIC_PARAM_SIZE_LE_XDT_FEATURES_ENABLE 17
+
 constexpr uint8_t kMaxParametersSize = 255;
 
 void btsnd_hcic_ble_set_scan_params(uint8_t scan_type, uint16_t scan_int, uint16_t scan_win,
@@ -794,6 +798,32 @@ void btsnd_hcic_set_hdt_plus_features_enable(uint16_t conn_handle,
   UINT16_TO_STREAM(pp, conn_handle);
   UINT32_TO_STREAM(pp, (uint32_t)(hdt_plus_features & 0xFFFFFFFF));
   UINT32_TO_STREAM(pp, (uint32_t)(hdt_plus_features >> 32));
+  UINT8_TO_STREAM(pp, br_c_to_p);
+  UINT8_TO_STREAM(pp, br_p_to_c);
+  UINT16_TO_STREAM(pp, rates_c_to_p);
+  UINT16_TO_STREAM(pp, rates_p_to_c);
+
+  btu_hcif_send_cmd(LOCAL_BR_EDR_CONTROLLER_ID, p);
+}
+
+void btsnd_hcic_le_xdt_features_enable(uint16_t conn_handle,
+                                        uint64_t xdt_features,
+                                        uint8_t br_c_to_p, uint8_t br_p_to_c,
+                                        uint16_t rates_c_to_p,
+                                        uint16_t rates_p_to_c) {
+  BT_HDR* p = (BT_HDR*)osi_malloc(HCI_CMD_BUF_SIZE);
+  uint8_t* pp = (uint8_t*)(p + 1);
+
+  p->len = HCIC_PREAMBLE_SIZE + HCIC_PARAM_SIZE_LE_XDT_FEATURES_ENABLE;
+  p->offset = 0;
+
+  UINT16_TO_STREAM(pp, HCI_VS_LE_XDT_FEATURES_ENABLE);
+  UINT8_TO_STREAM(pp, HCIC_PARAM_SIZE_LE_XDT_FEATURES_ENABLE);
+
+  UINT8_TO_STREAM(pp, HCI_VS_LE_XDT_FEATURES_ENABLE_SUB_OPCODE);
+  UINT16_TO_STREAM(pp, conn_handle);
+  UINT32_TO_STREAM(pp, (uint32_t)(xdt_features & 0xFFFFFFFF));
+  UINT32_TO_STREAM(pp, (uint32_t)(xdt_features >> 32));
   UINT8_TO_STREAM(pp, br_c_to_p);
   UINT8_TO_STREAM(pp, br_p_to_c);
   UINT16_TO_STREAM(pp, rates_c_to_p);

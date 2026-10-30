@@ -416,6 +416,13 @@ void sdpu_release_ccb(tCONN_CB& ccb) {
   ccb.con_state = tSDP_STATE::IDLE;
   ccb.is_attr_search = false;
 
+  /* Clear identity/callback state so a stale pointer to this now-released CCB
+   * cannot be mistaken for an active connection and redeliver its completion
+   * callback a second time. */
+  ccb.connection_id = 0;
+  ccb.p_cb = nullptr;
+  ccb.complete_callback.Reset();
+
   /* Free the response buffer */
   if (ccb.rsp_list) {
     log::verbose("releasing SDP rsp_list");

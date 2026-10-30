@@ -261,7 +261,8 @@ static void transmit_command(const BT_HDR* command, command_complete_cb complete
       sub_opcode = data[3];
       log::debug("Sending command, qbce sub_opcode {}", sub_opcode);
       // 0x0c is for QBCE_READ_REMOTE_QLL_SUPPORTED_FEATURE
-      if (sub_opcode == 0x0c) {
+      // 0x48 is for HCI_VS_LE_XDT_Features_Enable
+      if (sub_opcode == 0x0c || sub_opcode == 0x48) {
         is_qbce_sub_opcode_return_command_status = true;
       }
     }

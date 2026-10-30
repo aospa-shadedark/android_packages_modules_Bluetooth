@@ -578,11 +578,18 @@ static void groupSetActiveNative(JNIEnv* /* env */, jobject /* object */, jint g
   sLeAudioClientInterface->GroupSetActive(group_id);
 }
 
-static void setCodecConfigPreferenceWithCodecIdNative(JNIEnv* env, jint group_id,
+/* REQUIRES: caller holds interface_mutex (shared).
+ *
+ * This is not a registered JNI method; its only caller is
+ * setCodecConfigPreferenceNative, which already holds interface_mutex.
+ * Re-acquiring it here is a recursive lock_shared() on a non-recursive
+ * shared_timed_mutex: with a writer pending (cleanupNative), the second acquire
+ * blocks while this thread still holds the first, so the writer can never observe
+ * the reader count drain.
+ */
+static void setCodecConfigPreferenceWithCodecIdLocked(JNIEnv* env, jint group_id,
                                                       jobject inputCodecConfig,
                                                       jobject outputCodecConfig) {
-  std::shared_lock<std::shared_timed_mutex> lock(interface_mutex);
-
   if (!env->IsInstanceOf(inputCodecConfig,
                          android_bluetooth_BluetoothLeAudioCodecConfig_with_codec_id.clazz) ||
       !env->IsInstanceOf(outputCodecConfig,
@@ -685,7 +692,7 @@ static void setCodecConfigPreferenceNative(JNIEnv* env, jobject /* object */, ji
   std::shared_lock<std::shared_timed_mutex> lock(interface_mutex);
 
   if (com_android_bluetooth_flags_leaudio_codec_id_support()) {
-    setCodecConfigPreferenceWithCodecIdNative(env, group_id, inputCodecConfig, outputCodecConfig);
+    setCodecConfigPreferenceWithCodecIdLocked(env, group_id, inputCodecConfig, outputCodecConfig);
     return;
   }
 

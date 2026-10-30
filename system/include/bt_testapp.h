@@ -98,6 +98,9 @@ typedef struct {
   void (*set_hdt_plus_features_enable)(uint16_t handle, uint64_t hdt_plus_features,
                                                uint8_t br_c_to_p, uint8_t br_p_to_c,
                                                uint16_t rates_c_to_p, uint16_t rates_p_to_c);
+  void (*le_xdt_features_enable)(uint16_t handle, uint64_t xdt_features,
+                                 uint8_t br_c_to_p, uint8_t br_p_to_c,
+                                 uint16_t rates_c_to_p, uint16_t rates_p_to_c);
 } bthci_test_interface_t;
 
 typedef struct {

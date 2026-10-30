@@ -48,9 +48,16 @@ public class InitiatorViewModel extends AndroidViewModel {
     private static final MutableLiveData<Double> liveDistanceSingleton = new MutableLiveData<>(-1.0);
     public static MutableLiveData<Double> getLiveDistanceSingleton() { return liveDistanceSingleton; }
 
+    // Used to start/stop heartbeat liveness monitoring of the Reflector app. Attached once from the Fragment.
+    private BleConnectionViewModel mBleConnectionViewModel;
 
     public InitiatorViewModel(@NonNull Application application) {
         super(application);
+    }
+
+    /** Attaches the shared BleConnectionViewModel so sessions can drive heartbeat monitoring. */
+    public void attachConnectionViewModel(BleConnectionViewModel bleConnectionViewModel) {
+        mBleConnectionViewModel = bleConnectionViewModel;
     }
 
     @Override
@@ -139,6 +146,23 @@ public class InitiatorViewModel extends AndroidViewModel {
                         public void onStartSuccess() {
                             csStarted.postValue(true);
                             logText.postValue("CS started for " + device.getAddress());
+                            // Start heartbeat monitoring of the Reflector so we can
+                            // auto-stop ranging if its app process is killed.
+                            if (mBleConnectionViewModel != null) {
+                                mBleConnectionViewModel.startHeartbeatMonitoring(
+                                        device.getAddress(),
+                                        () -> {
+                                            Log.w(TAG, "Reflector heartbeat failed for "
+                                                    + device.getAddress()
+                                                    + " - auto-stopping ranging");
+                                            logText.postValue(
+                                                    "Reflector app appears to have died - "
+                                                    + "auto-stopping ranging for "
+                                                    + device.getAddress());
+                                            distance_count = 0;
+                                            initiator.stopDistanceMeasurement();
+                                        });
+                            }
                         }
 
                         @Override
@@ -150,6 +174,12 @@ public class InitiatorViewModel extends AndroidViewModel {
                         public void onStop() {
                             csStarted.postValue(false);
                             logText.postValue("CS stopped for " + device.getAddress());
+                            // Always stop heartbeat monitoring once ranging stops, whether
+                            // triggered manually or via the heartbeat failure above.
+                            if (mBleConnectionViewModel != null) {
+                                mBleConnectionViewModel.stopHeartbeatMonitoring(
+                                        device.getAddress());
+                            }
                         }
 
                         @Override

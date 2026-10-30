@@ -147,6 +147,8 @@ public class DeviceControlFragment extends Fragment {
         mBleConnectionViewModel = new ViewModelProvider(requireActivity()).get(BleConnectionViewModel.class);
         // Use activity scope so distance measurement continues when leaving this control screen.
         mInitiatorViewModel = new ViewModelProvider(requireActivity()).get(InitiatorViewModel.class);
+        // Attach so the heartbeat liveness-monitoring mitigation can be driven per session.
+        mInitiatorViewModel.attachConnectionViewModel(mBleConnectionViewModel);
 
         // Get the BluetoothDevice object.
         BluetoothGatt gatt = mBleConnectionViewModel.getGattForDevice(mDeviceAddress);

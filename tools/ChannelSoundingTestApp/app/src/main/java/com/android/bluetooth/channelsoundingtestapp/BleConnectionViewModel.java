@@ -29,8 +29,10 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothGattServer;
 import android.bluetooth.BluetoothGattServerCallback;
+import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.le.AdvertiseData;
 import android.bluetooth.le.AdvertisingSet;
@@ -42,8 +44,11 @@ import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelUuid;
 import android.text.TextUtils;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -62,11 +67,20 @@ import java.util.Set;
 /** The ViewModel for the BLE GATT connection. */
 @SuppressLint("MissingPermission") // permissions are checked upfront
 public class BleConnectionViewModel extends AndroidViewModel {
+    private static final String TAG = "BleConnectionViewModel";
     private static final int GATT_MTU_SIZE = 512;
+    private static final long HEARTBEAT_INTERVAL_MS = 4000;
+    private static final int HEARTBEAT_FAILURE_THRESHOLD = 3;
     private boolean is_advertising = false;
     private final BluetoothAdapter mBluetoothAdapter;
     private final BluetoothManager mBluetoothManager;
     private Map<String, BluetoothGatt> mBluetoothGattMap = new HashMap<>();
+    private BluetoothGattServer mBluetoothGattServer;
+    private final Handler mHeartbeatHandler = new Handler(Looper.getMainLooper());
+    private Map<String, BluetoothGattCharacteristic> mHeartbeatCharacteristicMap = new HashMap<>();
+    private Map<String, Integer> mHeartbeatFailureCountMap = new HashMap<>();
+    private Map<String, Runnable> mHeartbeatRunnableMap = new HashMap<>();
+    private Map<String, Runnable> mHeartbeatDeathCallbackMap = new HashMap<>();
     private MutableLiveData<Boolean> mIsAdvertising = new MutableLiveData<>(false);
     private MutableLiveData<String> mLogText = new MutableLiveData<>();
     private MutableLiveData<BluetoothDevice> mTargetDevice = new MutableLiveData<>();
@@ -258,11 +272,48 @@ public class BleConnectionViewModel extends AndroidViewModel {
                             mTargetDevice.postValue(null);
                         }
                     }
+
+                    @Override
+                    public void onServiceAdded(int status, BluetoothGattService service) {
+                        super.onServiceAdded(status, service);
+                        if (status != BluetoothGatt.GATT_SUCCESS) {
+                            Log.w(TAG, "Failed to add service " + service.getUuid()
+                                    + " status=" + status);
+                        }
+                    }
+
+                    @Override
+                    public void onCharacteristicReadRequest(
+                            BluetoothDevice device, int requestId, int offset,
+                            BluetoothGattCharacteristic characteristic) {
+                        if (Constants.HEARTBEAT_CHARACTERISTIC_UUID.equals(
+                                characteristic.getUuid())) {
+                            mBluetoothGattServer.sendResponse(
+                                    device, requestId, BluetoothGatt.GATT_SUCCESS,
+                                    offset, new byte[] {0x01});
+                        } else {
+                            super.onCharacteristicReadRequest(device, requestId, offset, characteristic);
+                        }
+                    }
                 };
 
-        BluetoothGattServer bluetoothGattServer =
+        mBluetoothGattServer =
                 mBluetoothManager.openGattServer(
                         getApplication().getApplicationContext(), gattServerCallback);
+
+        // Add the heartbeat characteristic so the Initiator can poll it to detect if this
+        // Reflector app process has been killed (appDeregister() tears down this service).
+        BluetoothGattCharacteristic heartbeatCharacteristic =
+                new BluetoothGattCharacteristic(
+                        Constants.HEARTBEAT_CHARACTERISTIC_UUID,
+                        BluetoothGattCharacteristic.PROPERTY_READ,
+                        BluetoothGattCharacteristic.PERMISSION_READ);
+        BluetoothGattService heartbeatService =
+                new BluetoothGattService(
+                        Constants.CS_TEST_SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY);
+        heartbeatService.addCharacteristic(heartbeatCharacteristic);
+        mBluetoothGattServer.addService(heartbeatService);
+
         AdvertiseData advertiseData =
                 new AdvertiseData.Builder()
                         .setIncludeDeviceName(true)
@@ -395,12 +446,15 @@ public class BleConnectionViewModel extends AndroidViewModel {
                              mGattState.postValue(GattState.CONNECTED_DIRECT);
                              mTargetDevice.postValue(gatt.getDevice());
                         }
+                        // Discover services to locate the Reflector's heartbeat characteristic.
+                        gatt.discoverServices();
                     } else if (newState == STATE_DISCONNECTED) {
                         printLog("disconnected from " + gatt.getDevice().getName());
                         mDeviceGattStateMap.put(address, GattState.DISCONNECTED);
                         mBluetoothGattMap.remove(address);
                         gatt.close();
                         updateConnectedDevicesList();
+                        stopHeartbeatMonitoring(address);
 
                         if (address.equals(mTargetBtAddress)) {
                             mGattState.postValue(GattState.DISCONNECTED);
@@ -416,7 +470,92 @@ public class BleConnectionViewModel extends AndroidViewModel {
                         printLog("MTU change failed: " + status);
                     }
                 }
+
+                @Override
+                public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+                    String address = gatt.getDevice().getAddress();
+                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                        Log.w(TAG, "Service discovery failed for " + address + " status=" + status);
+                        return;
+                    }
+                    BluetoothGattService service =
+                            gatt.getService(Constants.CS_TEST_SERVICE_UUID);
+                    if (service == null) {
+                        return;
+                    }
+                    BluetoothGattCharacteristic heartbeatCharacteristic =
+                            service.getCharacteristic(Constants.HEARTBEAT_CHARACTERISTIC_UUID);
+                    if (heartbeatCharacteristic == null) {
+                        return;
+                    }
+                    mHeartbeatCharacteristicMap.put(address, heartbeatCharacteristic);
+                }
+
+                @Override
+                public void onCharacteristicRead(
+                        BluetoothGatt gatt, BluetoothGattCharacteristic characteristic,
+                        int status) {
+                    String address = gatt.getDevice().getAddress();
+                    if (!Constants.HEARTBEAT_CHARACTERISTIC_UUID.equals(characteristic.getUuid())) {
+                        return;
+                    }
+                    if (status == BluetoothGatt.GATT_SUCCESS) {
+                        mHeartbeatFailureCountMap.put(address, 0);
+                        return;
+                    }
+                    int failures = mHeartbeatFailureCountMap.getOrDefault(address, 0) + 1;
+                    mHeartbeatFailureCountMap.put(address, failures);
+                    if (failures >= HEARTBEAT_FAILURE_THRESHOLD) {
+                        Log.w(TAG, "Heartbeat failure threshold reached for " + address
+                                + " - Reflector app presumed killed, auto-stopping ranging");
+                        Runnable deathCallback = mHeartbeatDeathCallbackMap.get(address);
+                        stopHeartbeatMonitoring(address);
+                        if (deathCallback != null) {
+                            deathCallback.run();
+                        }
+                    }
+                }
             };
+
+    /**
+     * Starts periodic heartbeat reads of the Reflector's heartbeat characteristic to detect
+     * if its app process has been killed. After HEARTBEAT_FAILURE_THRESHOLD consecutive
+     * read failures, {@code onDeathDetected} is invoked once and monitoring is stopped.
+     */
+    void startHeartbeatMonitoring(String address, Runnable onDeathDetected) {
+        if (mHeartbeatRunnableMap.containsKey(address)) {
+            return;
+        }
+        mHeartbeatFailureCountMap.put(address, 0);
+        mHeartbeatDeathCallbackMap.put(address, onDeathDetected);
+        Runnable heartbeatRunnable =
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        BluetoothGatt gatt = mBluetoothGattMap.get(address);
+                        BluetoothGattCharacteristic characteristic =
+                                mHeartbeatCharacteristicMap.get(address);
+                        if (gatt != null && characteristic != null) {
+                            gatt.readCharacteristic(characteristic);
+                        }
+                        if (mHeartbeatRunnableMap.containsKey(address)) {
+                            mHeartbeatHandler.postDelayed(this, HEARTBEAT_INTERVAL_MS);
+                        }
+                    }
+                };
+        mHeartbeatRunnableMap.put(address, heartbeatRunnable);
+        mHeartbeatHandler.postDelayed(heartbeatRunnable, HEARTBEAT_INTERVAL_MS);
+    }
+
+    /** Stops heartbeat monitoring for the given device. Safe to call when not monitoring. */
+    void stopHeartbeatMonitoring(String address) {
+        Runnable heartbeatRunnable = mHeartbeatRunnableMap.remove(address);
+        if (heartbeatRunnable != null) {
+            mHeartbeatHandler.removeCallbacks(heartbeatRunnable);
+        }
+        mHeartbeatFailureCountMap.remove(address);
+        mHeartbeatDeathCallbackMap.remove(address);
+    }
 
     private void updateConnectedDevicesList() {
         List<BluetoothDevice> devices = new ArrayList<>();

@@ -28,6 +28,12 @@ abstract class Constants {
     static final UUID RANGING_SERVICE_UUID =
             UUID.fromString("0000185B-0000-1000-8000-00805F9B34FB");
 
+    // Heartbeat characteristic added under CS_TEST_SERVICE_UUID on the Reflector's GATT
+    // server. The Initiator periodically reads it to detect if the Reflector app has been
+    // killed (in which case reads start failing), and auto-stops ranging if so.
+    static final UUID HEARTBEAT_CHARACTERISTIC_UUID =
+            UUID.fromString("f81d4fae-7ccc-eeee-a765-00bbbbbbbbbb");
+
     enum GattState {
         DISCONNECTED,
         SCANNING,
