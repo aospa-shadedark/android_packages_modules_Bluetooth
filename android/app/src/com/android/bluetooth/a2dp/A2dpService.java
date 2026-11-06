@@ -1101,6 +1101,9 @@ public class A2dpService extends ConnectableProfile {
         if (isActiveDevice(device)) {
             mAudioManager.handleBluetoothActiveDeviceChanged(
                     device, device, BluetoothProfileConnectionInfo.createA2dpInfo(false, -1));
+        } else if (getActiveDevice() == null && getConnectionState(device) == STATE_CONNECTED) {
+            Log.i(TAG, "codecConfigUpdated(" + device + "): no active device, activating connected device");
+            setActiveDevice(device);
         }
     }
 
@@ -1413,15 +1416,20 @@ public class A2dpService extends ConnectableProfile {
         if (supportsOptional) {
             int enabled = getOptionalCodecsEnabled(device);
             switch (enabled) {
-                case BluetoothA2dp.OPTIONAL_CODECS_PREF_ENABLED -> enableOptionalCodecs(device);
+                case BluetoothA2dp.OPTIONAL_CODECS_PREF_ENABLED -> {
+                    if (!applyCodecIdPreference(device)) {
+                        enableOptionalCodecs(device);
+                    }
+                }
                 case BluetoothA2dp.OPTIONAL_CODECS_PREF_DISABLED -> disableOptionalCodecs(device);
                 // OPTIONAL_CODECS_PREF_UNKNOWN Enable optional codec by default.
                 default -> {
                     setOptionalCodecsEnabled(device, BluetoothA2dp.OPTIONAL_CODECS_PREF_ENABLED);
-                    enableOptionalCodecs(device);
+                    if (!applyCodecIdPreference(device)) {
+                        enableOptionalCodecs(device);
+                    }
                 }
             }
-            applyCodecIdPreference(device);
         }
     }
 
@@ -1477,8 +1485,9 @@ public class A2dpService extends ConnectableProfile {
      * the peer reports its capabilities.
      *
      * @param device is the remote bluetooth device
+     * @return true if user preferences were applied to native layer, false otherwise
      */
-    private void applyCodecIdPreference(BluetoothDevice device) {
+    private boolean applyCodecIdPreference(BluetoothDevice device) {
         long codecId = getStorage().getA2dpCodecIdPreference(device);
         SharedPreferences prefs = getSharedPreferences(A2DP_CODEC_PREFS, Context.MODE_PRIVATE);
         String prefix = device.getAddress() + "_";
@@ -1490,16 +1499,16 @@ public class A2dpService extends ConnectableProfile {
             }
         }
         if (codecId == BluetoothStorageManager.CODEC_ID_PREFERENCE_NONE && !hasSavedParams) {
-            return;
+            return false;
         }
 
         BluetoothCodecStatus codecStatus = getCodecStatus(device);
         if (codecStatus == null) {
-            return;
+            return false;
         }
         BluetoothCodecConfig current = codecStatus.getCodecConfig();
         if (current == null) {
-            return;
+            return false;
         }
 
         BluetoothCodecConfig selectable = null;
@@ -1510,6 +1519,9 @@ public class A2dpService extends ConnectableProfile {
                     .orElse(null);
             if (selectable == null) {
                 Log.i(TAG, "applyCodecIdPreference: codec " + codecId + " is not selectable");
+                if (!hasSavedParams) {
+                    return false;
+                }
             }
         }
         if (selectable == null) {
@@ -1571,12 +1583,13 @@ public class A2dpService extends ConnectableProfile {
         boolean matchesSpecific1 = (savedCodecSpecific1 == 0L || !A2dpCodecConfig.hasLhdcQualityChange(current, requestedConfig));
 
         if (matchesCodec && matchesSampleRate && matchesBits && matchesChannel && matchesSpecific1) {
-            return;
+            return false;
         }
 
         Log.i(TAG, "applyCodecIdPreference(" + device + "): applying user preferences: codec=" + targetCodecId
                 + " sampleRate=" + targetSampleRate + " codecSpecific1=0x" + Long.toHexString(targetCodecSpecific1));
         mA2dpCodecConfig.setCodecConfigPreference(device, codecStatus, requestedConfig);
+        return true;
     }
 
     private static boolean hasCodecId(BluetoothCodecConfig config, long codecId) {

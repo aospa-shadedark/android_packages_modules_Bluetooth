@@ -168,6 +168,15 @@ public class ActiveDeviceManager implements AdapterService.BluetoothStateCallbac
     @GuardedBy("mLock")
     private BluetoothDevice mPendingActiveDevice = null;
 
+    private static final int A2DP_SET_ACTIVE_RETRY_DELAY_MS = 300;
+    private static final int MAX_A2DP_SET_ACTIVE_RETRIES = 2;
+
+    @GuardedBy("mLock")
+    private int mA2dpSetActiveRetryCount = 0;
+
+    @GuardedBy("mLock")
+    private BluetoothDevice mA2dpPendingRetryDevice = null;
+
     private BluetoothDevice mClassicDeviceToBeActivated = null;
     private BluetoothDevice mClassicDeviceNotToBeActivated = null;
 
@@ -816,6 +825,12 @@ public class ActiveDeviceManager implements AdapterService.BluetoothStateCallbac
                             + mA2dpActiveDevice);
             mA2dpConnectedDevices.remove(device);
 
+            if (Objects.equals(mA2dpPendingRetryDevice, device)) {
+                mHandler.removeCallbacksAndMessages(mA2dpPendingRetryDevice);
+                mA2dpPendingRetryDevice = null;
+                mA2dpSetActiveRetryCount = 0;
+            }
+
             if (Flags.admSuspendFallbackDuringChange()) {
                 if (Objects.equals(mPendingActiveDevice, device)) {
                     Log.d(TAG, "Pending active device " + device + " disconnected before active");
@@ -1074,6 +1089,12 @@ public class ActiveDeviceManager implements AdapterService.BluetoothStateCallbac
 
             // Just assign locally the new value
             mA2dpActiveDevice = device;
+
+            if (Objects.equals(mA2dpPendingRetryDevice, device)) {
+                mHandler.removeCallbacksAndMessages(mA2dpPendingRetryDevice);
+                mA2dpPendingRetryDevice = null;
+                mA2dpSetActiveRetryCount = 0;
+            }
 
             // Activate HFP if needed.
             if (device != null) {
@@ -1679,6 +1700,13 @@ public class ActiveDeviceManager implements AdapterService.BluetoothStateCallbac
                 mHandler.removeCallbacksAndMessages(mPendingClassicActiveDevice);
                 mPendingClassicActiveDevice = null;
             }
+            if (device == null || !Objects.equals(mA2dpPendingRetryDevice, device)) {
+                if (mA2dpPendingRetryDevice != null) {
+                    mHandler.removeCallbacksAndMessages(mA2dpPendingRetryDevice);
+                    mA2dpPendingRetryDevice = null;
+                }
+                mA2dpSetActiveRetryCount = 0;
+            }
         }
 
         final var a2dp = mAdapterService.getA2dpService();
@@ -1696,13 +1724,55 @@ public class ActiveDeviceManager implements AdapterService.BluetoothStateCallbac
 
         if (!success) {
             Log.e(TAG, "setA2dpActiveDevice: failed for device " + device);
+            if (device != null) {
+                scheduleA2dpActiveDeviceRetry(device, stopAudio);
+            }
             return false;
         }
 
         synchronized (mLock) {
             mA2dpActiveDevice = device;
+            if (Objects.equals(mA2dpPendingRetryDevice, device)) {
+                mA2dpPendingRetryDevice = null;
+                mA2dpSetActiveRetryCount = 0;
+            }
         }
         return true;
+    }
+
+    private void scheduleA2dpActiveDeviceRetry(BluetoothDevice device, boolean stopAudio) {
+        synchronized (mLock) {
+            if (mA2dpSetActiveRetryCount >= MAX_A2DP_SET_ACTIVE_RETRIES) {
+                Log.w(TAG, "scheduleA2dpActiveDeviceRetry: max retries reached for " + device);
+                mA2dpPendingRetryDevice = null;
+                mA2dpSetActiveRetryCount = 0;
+                return;
+            }
+            mA2dpSetActiveRetryCount++;
+            mA2dpPendingRetryDevice = device;
+            Log.i(TAG, "scheduleA2dpActiveDeviceRetry: scheduling retry #" + mA2dpSetActiveRetryCount
+                    + " for " + device + " in " + A2DP_SET_ACTIVE_RETRY_DELAY_MS + "ms");
+            mHandler.postDelayed(() -> {
+                synchronized (mLock) {
+                    if (!Objects.equals(mA2dpPendingRetryDevice, device)) {
+                        return;
+                    }
+                    if (!mA2dpConnectedDevices.contains(device)) {
+                        Log.i(TAG, "A2DP retry cancelled: device no longer connected: " + device);
+                        mA2dpPendingRetryDevice = null;
+                        mA2dpSetActiveRetryCount = 0;
+                        return;
+                    }
+                    if (Objects.equals(mA2dpActiveDevice, device)) {
+                        Log.i(TAG, "A2DP retry cancelled: device already active: " + device);
+                        mA2dpPendingRetryDevice = null;
+                        mA2dpSetActiveRetryCount = 0;
+                        return;
+                    }
+                }
+                setA2dpActiveDevice(device, stopAudio);
+            }, mA2dpPendingRetryDevice, A2DP_SET_ACTIVE_RETRY_DELAY_MS);
+        }
     }
 
     private boolean setHfpActiveDevice(BluetoothDevice device) {
@@ -2199,6 +2269,12 @@ public class ActiveDeviceManager implements AdapterService.BluetoothStateCallbac
 
     private void resetState() {
         synchronized (mLock) {
+            if (mA2dpPendingRetryDevice != null) {
+                mHandler.removeCallbacksAndMessages(mA2dpPendingRetryDevice);
+                mA2dpPendingRetryDevice = null;
+                mA2dpSetActiveRetryCount = 0;
+            }
+
             mA2dpConnectedDevices.clear();
             mA2dpActiveDevice = null;
 
